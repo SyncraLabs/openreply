@@ -22,6 +22,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { useT } from "@/components/lang-provider";
 
 export interface FollowerChartPoint {
   date: string;
@@ -31,7 +32,8 @@ export interface FollowerChartPoint {
 
 // Colors read against the light chart surface (#ffffff): the accent line clears
 // 3:1 contrast and grid/axis text match the muted/border tokens. See globals.css.
-const SERIES_COLOR = "#f97316";
+// Violeta de marca de Rodri OS. En oscuro sube un tono para no apagarse.
+const SERIES_COLOR = "#7954e8";
 const GRID_COLOR = "#e4e4e7";
 const AXIS_TEXT = "#71717a";
 
@@ -85,6 +87,7 @@ export default function FollowerChart({
   data: FollowerChartPoint[];
   followers: number | null;
 }) {
+  const t = useT();
   const [showTable, setShowTable] = useState(false);
 
   const current = followers ?? data.at(-1)?.followers ?? null;
@@ -99,19 +102,19 @@ export default function FollowerChart({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-foreground">
-            Followers over time
+            {t("ov.followersOverTime")}
           </h2>
           <p className="mt-1 text-sm text-muted">
             {current === null
-              ? "Follower count unavailable"
-              : `${current.toLocaleString()} now`}
+              ? "—"
+              : `${current.toLocaleString()} ${t("ov.now")}`}
             {net !== null && (
               <>
                 {" · "}
                 <span className={net >= 0 ? "text-success" : "text-error"}>
                   {formatSigned(net)}
                 </span>{" "}
-                over {data.length} days
+                {t("ov.over30")}
               </>
             )}
           </p>
@@ -122,7 +125,7 @@ export default function FollowerChart({
             onClick={() => setShowTable((v) => !v)}
             className="rounded border border-border px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-border-hover hover:text-foreground"
           >
-            {showTable ? "Show chart" : "Show table"}
+            {showTable ? t("ov.hideTable") : t("ov.showTable")}
           </button>
         )}
       </div>

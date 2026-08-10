@@ -6,6 +6,7 @@
  * Text-only nav with active state and workspace section.
  */
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import LangToggle from "@/components/lang-toggle";
@@ -61,20 +62,16 @@ export default function Sidebar({
             href="/dashboard"
             className="flex items-center gap-2.5 text-base font-semibold tracking-tight"
           >
-            <span
-              aria-hidden
-              className="relative grid size-7 shrink-0 place-items-center rounded-[9px]"
-              style={{
-                background: "linear-gradient(135deg, #5b5bff 0%, #8a5cf6 100%)",
-                boxShadow: "0 6px 16px -8px rgba(91, 91, 255, 0.8)",
-              }}
-            >
-              {/* Los dos círculos del icono de Rodri OS. */}
-              <span className="flex items-center gap-[3px]">
-                <span className="block size-[5px] rounded-full bg-white" />
-                <span className="block size-[9px] rounded-full bg-white" />
-              </span>
-            </span>
+            {/* El icono real de Rodri OS, no una recreación. */}
+            <Image
+              src="/brand/rodri-os-192.png"
+              alt=""
+              width={28}
+              height={28}
+              priority
+              className="size-7 shrink-0 rounded-[9px]"
+              style={{ boxShadow: "0 6px 16px -8px rgba(91, 91, 255, 0.7)" }}
+            />
             AI Operator
           </Link>
         </div>

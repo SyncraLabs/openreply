@@ -9,6 +9,7 @@
 import { useEffect, useState, useCallback } from "react";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import StatusBadge from "@/components/status-badge";
+import { useT } from "@/components/lang-provider";
 
 interface DmLog {
   id: string;
@@ -40,6 +41,7 @@ const STATUS_FILTERS = [
 ];
 
 export default function LogsPage() {
+  const t = useT();
   const [logs, setLogs] = useState<DmLog[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(true);
@@ -115,7 +117,9 @@ export default function LogsPage() {
                 }
               `}
             >
-              {status === "ALL" ? "All" : status.replace("SKIPPED_", "").replace("_", " ")}
+              {status === "ALL"
+                ? t("common.all")
+                : t(`status.${status}` as never)}
             </button>
           ))}
         </div>
@@ -136,12 +140,12 @@ export default function LogsPage() {
           <table className="w-full min-w-[760px] text-sm">
             <thead>
               <tr className="border-b border-border text-left">
-                <th className="px-4 py-4 text-xs font-semibold text-muted uppercase tracking-wider sm:px-6">Commenter</th>
-                <th className="px-4 py-4 text-xs font-semibold text-muted uppercase tracking-wider sm:px-6">Comment</th>
-                <th className="px-4 py-4 text-xs font-semibold text-muted uppercase tracking-wider sm:px-6">Campaign</th>
-                <th className="px-4 py-4 text-xs font-semibold text-muted uppercase tracking-wider sm:px-6">Account</th>
-                <th className="px-4 py-4 text-xs font-semibold text-muted uppercase tracking-wider sm:px-6">Status</th>
-                <th className="px-4 py-4 text-xs font-semibold text-muted uppercase tracking-wider sm:px-6">Time</th>
+                <th className="px-4 py-4 text-xs font-semibold text-muted uppercase tracking-wider sm:px-6">{t("logs.commenter")}</th>
+                <th className="px-4 py-4 text-xs font-semibold text-muted uppercase tracking-wider sm:px-6">{t("logs.comment")}</th>
+                <th className="px-4 py-4 text-xs font-semibold text-muted uppercase tracking-wider sm:px-6">{t("logs.campaign")}</th>
+                <th className="px-4 py-4 text-xs font-semibold text-muted uppercase tracking-wider sm:px-6">{t("logs.account")}</th>
+                <th className="px-4 py-4 text-xs font-semibold text-muted uppercase tracking-wider sm:px-6">{t("logs.status")}</th>
+                <th className="px-4 py-4 text-xs font-semibold text-muted uppercase tracking-wider sm:px-6">{t("logs.date")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -201,8 +205,8 @@ export default function LogsPage() {
         {pagination && pagination.totalPages > 1 && (
           <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 border-t border-border sm:px-6">
             <p className="text-xs text-muted">
-              Showing {(pagination.page - 1) * pagination.limit + 1}–
-              {Math.min(pagination.page * pagination.limit, pagination.total)} of{" "}
+              {t("common.showing")} {(pagination.page - 1) * pagination.limit + 1}–
+              {Math.min(pagination.page * pagination.limit, pagination.total)} {t("common.of")}{" "}
               {pagination.total}
             </p>
             <div className="flex items-center gap-2">
@@ -214,7 +218,7 @@ export default function LogsPage() {
                 }}
                 className="px-3 py-1.5 rounded-lg text-xs font-medium text-muted border border-border hover:text-foreground hover:border-border-hover transition-all disabled:opacity-30 disabled:pointer-events-none"
               >
-                Previous
+                {t("common.prev")}
               </button>
               <span className="text-xs text-muted px-2">
                 {page} / {pagination.totalPages}
@@ -227,7 +231,7 @@ export default function LogsPage() {
                 }}
                 className="px-3 py-1.5 rounded-lg text-xs font-medium text-muted border border-border hover:text-foreground hover:border-border-hover transition-all disabled:opacity-30 disabled:pointer-events-none"
               >
-                Next
+                {t("common.next")}
               </button>
             </div>
           </div>

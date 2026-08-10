@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 import AccountSelect from "@/components/account-select";
+import { useT } from "@/components/lang-provider";
 import StatCard from "@/components/stat-card";
 import FollowerChart from "@/components/follower-chart";
 import type { OverviewResponse } from "@/app/api/instagram/overview/route";
@@ -27,13 +28,14 @@ function formatDate(iso: string): string {
 }
 
 const COUNT_OPTIONS = [
-  { value: "25", label: "Last 25" },
-  { value: "50", label: "Last 50" },
-  { value: "100", label: "Last 100" },
-  { value: "all", label: "All time" },
+  { value: "25", n: 25 },
+  { value: "50", n: 50 },
+  { value: "100", n: 100 },
+  { value: "all", n: null },
 ];
 
 export default function OverviewPage() {
+  const t = useT();
   const [data, setData] = useState<OverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,10 +56,10 @@ export default function OverviewPage() {
           setData(res.data);
           setError(null);
         } else {
-          setError(res.error ?? "Failed to load overview");
+          setError(res.error ?? "__LOADERR__");
         }
       })
-      .catch(() => setError("Failed to load overview"))
+      .catch(() => setError("__LOADERR__"))
       .finally(() => setLoading(false));
   }, [selectedAccountId, count]);
 
@@ -87,7 +89,7 @@ export default function OverviewPage() {
   if (error) {
     return (
       <div className="panel rounded p-8 text-center">
-        <p className="text-sm text-error">{error}</p>
+        <p className="text-sm text-error">{error === "__LOADERR__" ? t("ov.loadError") : error}</p>
         {error.includes("connect") && (
           <a
             href="/api/instagram/connect"
@@ -109,25 +111,25 @@ export default function OverviewPage() {
     <div className="space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <h1 className="text-lg font-semibold text-foreground">Overview</h1>
+          <h1 className="text-lg font-semibold text-foreground">{t("ov.title")}</h1>
           <p className="text-sm text-muted mt-1">
-            {data.requestedCount === "all" ? "All-time" : "Recent"} —{" "}
-            {totals.posts} post{totals.posts === 1 ? "" : "s"} from @
-            {data.account.username}
+            {data.requestedCount === "all" ? t("ov.allTime") : t("ov.recent")} —{" "}
+            {totals.posts} {totals.posts === 1 ? t("ov.post") : t("ov.posts")}{" "}
+            {t("ov.from")} @{data.account.username}
             {data.truncated ? ` (capped at ${totals.posts})` : ""}
           </p>
           {followers !== null && (
             // Kept out of the tile row below: that row sums the selected posts,
             // whereas this is a current account-level total.
             <p className="mt-1 text-sm text-muted">
-              {followers.toLocaleString()} followers
+              {followers.toLocaleString()} {t("ov.followers")}
             </p>
           )}
         </div>
         <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
           <label className="flex flex-col gap-2 text-sm">
             <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Range
+              {t("ov.range")}
             </span>
             <select
               value={count}
@@ -136,7 +138,7 @@ export default function OverviewPage() {
             >
               {COUNT_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
-                  {o.label}
+                  {o.n === null ? t("ov.allRange") : `${t("ov.last")} ${o.n}`}
                 </option>
               ))}
             </select>
@@ -158,29 +160,28 @@ export default function OverviewPage() {
       {!insightsAvailable && (
         <div className="panel rounded p-4 border border-border">
           <p className="text-sm text-foreground">
-            Views, reach, saved and shares need the insights permission.
+            {t("ov.insightsTitle")}
           </p>
           <p className="text-sm text-muted mt-1">
-            Reconnect your account to grant it — likes and comments are shown in
-            the meantime.
+            {t("ov.insightsBody")}
           </p>
           <a
             href="/api/instagram/connect"
             className="mt-3 inline-block text-sm text-accent hover:underline"
           >
-            Reconnect Instagram
+            {t("ov.reconnect")}
           </a>
         </div>
       )}
 
       {/* Aggregate totals */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
-        <StatCard label="Views" value={formatNumber(totals.views)} />
-        <StatCard label="Reach" value={formatNumber(totals.reach)} />
-        <StatCard label="Likes" value={formatNumber(totals.likes)} />
-        <StatCard label="Comments" value={formatNumber(totals.comments)} />
-        <StatCard label="Saved" value={formatNumber(totals.saved)} />
-        <StatCard label="Shares" value={formatNumber(totals.shares)} />
+        <StatCard label={t("ov.views")} value={formatNumber(totals.views)} />
+        <StatCard label={t("ov.reach")} value={formatNumber(totals.reach)} />
+        <StatCard label={t("ov.likes")} value={formatNumber(totals.likes)} />
+        <StatCard label={t("ov.comments")} value={formatNumber(totals.comments)} />
+        <StatCard label={t("ov.saved")} value={formatNumber(totals.saved)} />
+        <StatCard label={t("ov.shares")} value={formatNumber(totals.shares)} />
       </div>
 
       {/* Follower trend — account-level, independent of the post range */}

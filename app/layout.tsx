@@ -24,6 +24,20 @@ export const metadata: Metadata = {
     "Comentario a DM automático en Instagram, sobre la API oficial de Meta. Sin cuota mensual y sin límite de envíos.",
   applicationName: "AI Operator",
   appleWebApp: { capable: true, title: "AI Operator" },
+  /**
+   * Iconos declarados a mano con ?v=. Los navegadores cachean el favicon de
+   * forma agresiva y no lo sueltan aunque cambie el fichero: la única forma
+   * fiable de forzar el refresco es cambiar la URL. Si vuelve a cambiar el
+   * icono, sube el número de versión.
+   */
+  icons: {
+    icon: [
+      { url: "/brand/rodri-os.png?v=2", type: "image/png", sizes: "512x512" },
+      { url: "/brand/rodri-os-192.png?v=2", type: "image/png", sizes: "192x192" },
+    ],
+    apple: [{ url: "/brand/rodri-os-192.png?v=2", sizes: "192x192" }],
+    shortcut: [{ url: "/brand/rodri-os-192.png?v=2" }],
+  },
 };
 
 export const viewport: Viewport = {

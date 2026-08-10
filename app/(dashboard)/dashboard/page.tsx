@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import StatCard from "@/components/stat-card";
 import StatusBadge from "@/components/status-badge";
+import { useT } from "@/components/lang-provider";
 
 interface DashboardStats {
   userName: string | null;
@@ -41,6 +42,7 @@ interface DashboardStats {
 }
 
 export default function DashboardPage() {
+  const t = useT();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedAccountId, setSelectedAccountId] = useState("all");
@@ -117,14 +119,14 @@ export default function DashboardPage() {
       {/* Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
         <StatCard
-          label="Active Campaigns"
+          label={t("dash.activeCampaigns")}
           value={stats?.activeAutomations ?? 0}
         />
-        <StatCard label="DMs Sent" value={stats?.dmsSentMonth ?? 0} />
-        <StatCard label="Skipped" value={stats?.dmsSkippedMonth ?? 0} />
-        <StatCard label="Failed" value={stats?.dmsFailedMonth ?? 0} />
-        <StatCard label="Clicks" value={stats?.clicksThisMonth ?? 0} />
-        <StatCard label="CTR" value={`${stats?.ctrThisMonth ?? 0}%`} />
+        <StatCard label={t("dash.dmsSent")} value={stats?.dmsSentMonth ?? 0} />
+        <StatCard label={t("dash.skipped")} value={stats?.dmsSkippedMonth ?? 0} />
+        <StatCard label={t("dash.failed")} value={stats?.dmsFailedMonth ?? 0} />
+        <StatCard label={t("dash.clicks")} value={stats?.clicksThisMonth ?? 0} />
+        <StatCard label={t("dash.ctr")} value={`${stats?.ctrThisMonth ?? 0}%`} />
       </div>
 
       {/* Chart + Recent Activity */}
