@@ -15,6 +15,7 @@ import AccountSelect, { type AccountOption } from "@/components/account-select";
 import { readCache, writeCache } from "@/lib/client-cache";
 import type { ConversationListItem } from "@/app/api/instagram/conversations/route";
 import type { ThreadMessage } from "@/app/api/instagram/conversations/[id]/route";
+import { useT } from "@/components/lang-provider";
 
 const POLL_MS = 12_000;
 // Cached list/threads are shown instantly on revisit, then revalidated in the
@@ -36,6 +37,7 @@ function formatTime(iso: string | null): string {
 }
 
 export default function InboxPage() {
+  const t = useT();
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
   // Seed from the last-used account so a revisit can paint the cached
   // conversation list immediately, before the account list even loads.
@@ -259,7 +261,7 @@ export default function InboxPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-end justify-between gap-4">
-        <h1 className="text-lg font-semibold text-foreground">Inbox</h1>
+        <h1 className="text-lg font-semibold text-foreground">{t("inbox.title")}</h1>
         {accounts.length > 1 && (
           <AccountSelect
             accounts={accounts}
@@ -279,7 +281,7 @@ export default function InboxPage() {
           }`}
         >
           <div className="shrink-0 border-b border-border px-4 py-3 text-sm font-semibold text-foreground">
-            Conversations
+            {t("inbox.conversations")}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {convLoading ? (
@@ -328,7 +330,7 @@ export default function InboxPage() {
         >
           {!active ? (
             <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted">
-              Select a conversation to read and reply.
+              {t("inbox.pick")}
             </div>
           ) : (
             <>
@@ -339,7 +341,7 @@ export default function InboxPage() {
                   className="-ml-1 rounded px-2 py-1 text-muted hover:text-foreground sm:hidden"
                   aria-label="Back to conversations"
                 >
-                  Back
+                  {t("inbox.back")}
                 </button>
                 <span className="truncate">
                   @{active.contact.username ?? "unknown"}

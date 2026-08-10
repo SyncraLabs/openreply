@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import type { AccountOption } from "@/components/account-select";
 import { InstagramConnectNotice } from "@/components/instagram-connect-notice";
+import { useT } from "@/components/lang-provider";
 
 interface SettingsData {
   workspace: {
@@ -46,6 +47,7 @@ interface WorkspaceMembersData {
 }
 
 export default function SettingsPage() {
+  const t = useT();
   const [data, setData] = useState<SettingsData | null>(null);
   const [membersData, setMembersData] = useState<WorkspaceMembersData | null>(
     null
@@ -137,12 +139,12 @@ export default function SettingsPage() {
       </Suspense>
 
       <section className="panel rounded p-4 sm:p-6">
-        <h2 className="text-base font-semibold mb-6">Instagram Connection</h2>
+        <h2 className="text-base font-semibold mb-6">{t("set.igConnection")}</h2>
 
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3 py-3 border-b border-border">
             <div>
-              <p className="text-sm font-medium text-foreground">Status</p>
+              <p className="text-sm font-medium text-foreground">{t("set.status")}</p>
               <p className="text-xs text-muted mt-0.5">
                 Comment webhooks and private replies depend on this connection.
               </p>
@@ -160,7 +162,7 @@ export default function SettingsPage() {
 
           <div className="flex items-center justify-between gap-3 py-3 border-b border-border">
             <div>
-              <p className="text-sm font-medium text-foreground">Accounts</p>
+              <p className="text-sm font-medium text-foreground">{t("set.accounts")}</p>
               <p className="text-xs text-muted mt-0.5">
                 {accounts.length} connected Instagram profile
                 {accounts.length === 1 ? "" : "s"}
@@ -219,7 +221,7 @@ export default function SettingsPage() {
       </section>
 
       <section className="panel rounded p-4 sm:p-6">
-        <h2 className="text-base font-semibold mb-6">Team</h2>
+        <h2 className="text-base font-semibold mb-6">{t("set.team")}</h2>
         <div className="space-y-3">
           {membersData?.members.map((member) => (
             <div
@@ -242,7 +244,7 @@ export default function SettingsPage() {
         {membersData?.invitations.length ? (
           <div className="mt-6 border-t border-border pt-4">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Pending invites
+              {t("set.pendingInvites")}
             </p>
             <div className="space-y-3">
               {membersData.invitations.map((invitation) => (
@@ -266,7 +268,7 @@ export default function SettingsPage() {
                       }
                       className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-border-hover hover:text-foreground"
                     >
-                      Copy
+                      {t("set.copy")}
                     </button>
                     <button
                       type="button"
@@ -274,7 +276,7 @@ export default function SettingsPage() {
                       disabled={busy === `invite:${invitation.id}`}
                       className="rounded-lg border border-error/20 px-3 py-1.5 text-xs font-medium text-error transition-colors hover:bg-error/10 disabled:opacity-50"
                     >
-                      Revoke
+                      {t("set.revoke")}
                     </button>
                   </div>
                 </div>
@@ -303,8 +305,8 @@ export default function SettingsPage() {
               }
               className="rounded border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-accent/40"
             >
-              <option value="MEMBER">Member</option>
-              <option value="ADMIN">Admin</option>
+              <option value="MEMBER">{t("set.member")}</option>
+              <option value="ADMIN">{t("set.admin")}</option>
             </select>
             <button
               type="submit"
@@ -321,11 +323,11 @@ export default function SettingsPage() {
       </section>
 
       <section className="panel rounded p-4 sm:p-6">
-        <h2 className="text-base font-semibold mb-6">Usage</h2>
+        <h2 className="text-base font-semibold mb-6">{t("set.usage")}</h2>
         <div className="flex items-center justify-between gap-3 py-3">
           <div>
             <p className="text-sm font-medium text-foreground">
-              DMs sent this month
+              {t("set.dmsThisMonth")}
             </p>
             <p className="text-xs text-muted mt-0.5">
               Self-hosted — no plan limits.
