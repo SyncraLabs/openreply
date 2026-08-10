@@ -1,82 +1,266 @@
 @import "tailwindcss";
 
-/* AI Operator — Design System
-   Apple clean: neutros fríos, un solo acento azul, tipografía SF,
-   letter-spacing negativo en titulares. Sin gradientes ni glow. */
+/* ============================================================
+   AI OPERATOR — tokens de Rodri OS / Syncra ("Sistema A")
+   Claro cálido premium por defecto; oscuro bajo [data-theme='dark'].
+   Marca = tinta #241C3D → violeta #7954E8. Nunca un tono plano
+   para rellenos de CTA.
 
-@theme inline {
-  --color-background: #ffffff;
-  --color-foreground: #1d1d1f;
-  --color-surface: #fbfbfd;
-  --color-surface-hover: #f5f5f7;
-  --color-border: #e8e8ed;
-  --color-border-hover: #d2d2d7;
-  --color-muted: #6e6e73;
-  --color-accent: #0066ff;
-  --color-accent-hover: #0055d4;
-  --color-success: #34c759;
-  --color-error: #ff3b30;
-  --color-warning: #ff9500;
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-    "Helvetica Neue", Inter, system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+   Los NOMBRES de token son los que ya usaban los componentes de
+   esta app (surface, surface-hover, muted, accent…), mapeados a
+   las superficies de Syncra. Así el rebrand no toca ni un .tsx.
+   ============================================================ */
+
+:root {
+  --background: #fdfcf9;
+  --foreground: #242132;
+  --surface: #ffffff;
+  --surface-hover: #f6f6f4;
+  --border: #ededed;
+  --border-hover: #e0e0de;
+  /* En esta app `muted` se usa como color de TEXTO secundario
+     (text-muted), que en Syncra es --muted-foreground. */
+  --muted: #6b6b6b;
+
+  --accent: #4b2bd7;
+  --accent-hover: #3e22bd;
+  --accent-2: #7954e8;
+  --accent-muted: rgba(75, 43, 215, 0.09);
+
+  --success: #16a34a;
+  --error: #dc2626;
+  --warning: #d97706;
+
+  --grid-line: rgba(36, 33, 50, 0.018);
+
+  --shadow-soft: 0 1px 2px rgba(10, 10, 12, 0.04),
+    0 8px 24px -12px rgba(10, 10, 12, 0.08);
+  --shadow-lift: 0 1px 2px rgba(10, 10, 12, 0.06),
+    0 24px 48px -16px rgba(10, 10, 12, 0.12);
+
+  --radius: 1rem;
+  --radius-input: 0.625rem;
+
+  --ease-quart: cubic-bezier(0.25, 1, 0.5, 1);
+
+  color-scheme: light;
 }
 
-/* Modo oscuro: sigue al sistema. Los mismos tokens, invertidos. */
-@media (prefers-color-scheme: dark) {
-  @theme inline {
-    --color-background: #000000;
-    --color-foreground: #f5f5f7;
-    --color-surface: #1c1c1e;
-    --color-surface-hover: #2c2c2e;
-    --color-border: #2c2c2e;
-    --color-border-hover: #3a3a3c;
-    --color-muted: #98989d;
-    --color-accent: #0a84ff;
-    --color-accent-hover: #409cff;
-    --color-success: #30d158;
-    --color-error: #ff453a;
-    --color-warning: #ff9f0a;
-  }
+[data-theme="dark"] {
+  --background: #0a0a0c;
+  --foreground: #f5f5f7;
+  --surface: #141418;
+  --surface-hover: #1b1b21;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.14);
+  --muted: rgba(245, 245, 247, 0.55);
+
+  /* El violeta de marca se apaga sobre negro: sube un tono. */
+  --accent: #7954e8;
+  --accent-hover: #8a5cf6;
+  --accent-muted: rgba(121, 84, 232, 0.18);
+
+  --grid-line: rgba(255, 255, 255, 0.018);
+
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.5),
+    0 8px 24px -12px rgba(0, 0, 0, 0.55);
+  --shadow-lift: 0 1px 2px rgba(0, 0, 0, 0.5),
+    0 24px 48px -16px rgba(0, 0, 0, 0.6);
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+  --color-border-hover: var(--border-hover);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-2: var(--accent-2);
+  --color-accent-muted: var(--accent-muted);
+  --color-success: var(--success);
+  --color-error: var(--error);
+  --color-warning: var(--warning);
+
+  --font-sans: var(--font-geist-sans), -apple-system, BlinkMacSystemFont,
+    system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+
+  --shadow-soft: var(--shadow-soft);
+  --shadow-lift: var(--shadow-lift);
 }
 
 html {
-  color-scheme: light dark;
-}
-
-/* Titulares Apple: apretados y con peso. El cuerpo se queda normal. */
-h1,
-h2,
-h3 {
-  letter-spacing: -0.022em;
-}
-h1 {
-  letter-spacing: -0.03em;
+  background: var(--background);
+  /* Móvil: nada que se salga por la derecha debe provocar scroll lateral.
+     `clip` (no `hidden`) no rompe position:sticky. */
+  overflow-x: clip;
 }
 
 body {
-  background: var(--color-background);
-  color: var(--color-foreground);
+  background: transparent;
+  /* Rejilla de 72px de Rodri OS. Casi invisible, pero es lo que hace que el
+     fondo no parezca un folio en blanco. */
+  background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-position: center top;
+  background-size: 72px 72px;
+  color: var(--foreground);
   font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* Focus ring — visible, for keyboard users. */
+/* Titulares Geist 500 con tracking negativo — la firma de Rodri OS. */
+h1,
+h2,
+h3 {
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+h1 {
+  letter-spacing: -0.04em;
+}
+
+/* Cifras: mono tabular, para que no bailen al actualizarse. */
+.tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.gradient-text {
+  background: linear-gradient(90deg, #4b2bd7 0%, #7954e8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+[data-theme="dark"] .gradient-text {
+  background: linear-gradient(90deg, #8a5cf6 0%, #b7a4ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* Panel — card del sistema. */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+}
+
+/* Alias heredados: degradan a superficie plana en vez de romperse. */
+.glass,
+.glass-strong {
+  background: color-mix(in oklab, var(--surface) 72%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.gradient-mesh {
+  background: none;
+}
+
+/* ============================================================
+   Glows ambientales — blobs de marca que derivan por el fondo.
+   Van en <body> con z-index -10, detrás de todo.
+   ============================================================ */
+.ambient-glow {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  overflow: hidden;
+  pointer-events: none;
+}
+.ambient-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  will-change: transform;
+}
+.ambient-blob-1 {
+  width: 40rem;
+  height: 40rem;
+  left: -10rem;
+  top: -12rem;
+  background: radial-gradient(circle, rgba(75, 43, 215, 0.1), transparent 70%);
+  animation: drift-1 26s ease-in-out infinite;
+}
+.ambient-blob-2 {
+  width: 34rem;
+  height: 34rem;
+  right: -12rem;
+  top: 18%;
+  background: radial-gradient(circle, rgba(121, 84, 232, 0.09), transparent 70%);
+  animation: drift-2 32s ease-in-out infinite;
+}
+[data-theme="dark"] .ambient-blob-1 {
+  background: radial-gradient(circle, rgba(91, 91, 255, 0.22), transparent 70%);
+}
+[data-theme="dark"] .ambient-blob-2 {
+  background: radial-gradient(circle, rgba(138, 92, 246, 0.2), transparent 70%);
+}
+@keyframes drift-1 {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(70px, 50px) scale(1.08);
+  }
+}
+@keyframes drift-2 {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-60px, 40px) scale(1.1);
+  }
+}
+
+/* Scrollbar fina */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-hover);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+::selection {
+  background: color-mix(in oklab, #8a5cf6 25%, transparent);
+}
+
+/* Focus ring — visible, para teclado. */
 :focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* Form fields already have a border, so keep the focus ring hugging the
-   field instead of bleeding up toward the label above it. */
+/* Los campos ya tienen borde: el ring se pega al campo en vez de sangrar
+   hacia la etiqueta de arriba. */
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
   outline-offset: 1px;
 }
 
-/* iOS Safari zooms the whole page in when a focused field's text is under 16px,
-   and never zooms back out. Fields are text-sm (14px) throughout, so raise them
-   to 16px on phones and leave the desktop sizing alone. */
+/* iOS Safari hace zoom cuando el texto de un campo enfocado baja de 16px,
+   y no vuelve. Los campos son text-sm (14px), así que se suben en móvil. */
 @media (max-width: 640px) {
   input,
   textarea,
@@ -85,24 +269,42 @@ select:focus-visible {
   }
 }
 
-/* Panel — contenedor plano con esquinas Apple. */
-.panel {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
+/* Etiquetas del toggle de tema: solo se ve la del tema contrario al activo.
+   `contents` en el span hace que sus hijos hereden el flex del botón. */
+.theme-when-dark {
+  display: none;
+}
+[data-theme="dark"] .theme-when-light {
+  display: none;
+}
+[data-theme="dark"] .theme-when-dark {
+  display: contents;
 }
 
-/* Kept as no-op aliases so existing markup degrades to plain surfaces
-   instead of breaking. Prefer .panel in new code. */
-.glass,
-.glass-strong {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
+/* Skeleton de carga */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
-
-.gradient-mesh {
-  background: none;
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-hover);
+  border-radius: var(--radius-input);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--foreground) 6%, transparent),
+    transparent
+  );
+  animation: shimmer 1.4s infinite;
 }
 
 .animate-fade-in,
@@ -112,11 +314,13 @@ select:focus-visible {
   animation: none;
 }
 
+/* reduced-motion = kill-switch global */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }

@@ -8,6 +8,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import ThemeToggle from "@/components/theme-toggle";
 
 const navItems = [
   { label: "Panel", href: "/dashboard" },
@@ -58,9 +59,17 @@ export default function Sidebar({
           >
             <span
               aria-hidden
-              className="grid size-7 place-items-center rounded-lg bg-accent text-[13px] font-bold text-white"
+              className="relative grid size-7 shrink-0 place-items-center rounded-[9px]"
+              style={{
+                background: "linear-gradient(135deg, #5b5bff 0%, #8a5cf6 100%)",
+                boxShadow: "0 6px 16px -8px rgba(91, 91, 255, 0.8)",
+              }}
             >
-              AI
+              {/* Los dos círculos del icono de Rodri OS. */}
+              <span className="flex items-center gap-[3px]">
+                <span className="block size-[5px] rounded-full bg-white" />
+                <span className="block size-[9px] rounded-full bg-white" />
+              </span>
             </span>
             AI Operator
           </Link>
@@ -76,12 +85,13 @@ export default function Sidebar({
                 href={item.href}
                 onClick={onClose}
                 aria-current={isActive ? "page" : undefined}
+                prefetch
                 className={`
-                  block px-3 py-2.5 rounded text-sm
+                  block rounded-[10px] px-3 py-2.5 text-sm transition-colors
                   ${
                     isActive
-                      ? "bg-surface-hover text-foreground font-medium"
-                      : "text-muted hover:text-foreground hover:bg-surface-hover"
+                      ? "bg-accent-muted font-medium text-accent"
+                      : "text-muted hover:bg-surface-hover hover:text-foreground"
                   }
                 `}
               >
@@ -91,9 +101,12 @@ export default function Sidebar({
           })}
         </nav>
 
-        <div className="px-5 py-4 border-t border-border">
-          <p className="text-sm text-foreground truncate">{workspaceName}</p>
-          <p className="text-xs text-muted">Self-hosted</p>
+        <div className="space-y-1 border-t border-border px-3 py-3">
+          <ThemeToggle />
+          <div className="px-3 pt-2">
+            <p className="truncate text-sm text-foreground">{workspaceName}</p>
+            <p className="text-xs text-muted">Rodri OS · self-hosted</p>
+          </div>
         </div>
       </aside>
     </>
