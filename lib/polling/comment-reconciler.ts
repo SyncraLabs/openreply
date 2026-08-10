@@ -207,25 +207,38 @@ async function sweepCampaign(
     // enough — the reply still has to land); otherwise a SENT DM is enough. This
     // is what lets a comment whose DM sent but whose public reply failed come
     // back and retry the reply.
-    // Además de lo completado, se descartan los fallos permanentes: un
-    // comentario anidado, uno cuyo único private reply ya se gastó, uno
-    // borrado o uno fuera de la ventana de 7 días no va a funcionar por
-    // reintentarlo. Sin esto, cada barrido lo reencola y Meta devuelve el
-    // mismo error cada 5 minutos durante las 72 h de lookback.
+    const candidateIds = needsAction.map((c) => c.id);
+
     const handled = await prisma.dmLog.findMany({
       where: {
         automationId: automation.id,
-        commentId: { in: needsAction.map((c) => c.id) },
-        OR: [
-          automation.publicReplyEnabled
-            ? { publicReplySentAt: { not: null } }
-            : { status: "SENT" },
-          PERMANENT_FAILURE_WHERE,
-        ],
+        commentId: { in: candidateIds },
+        ...(automation.publicReplyEnabled
+          ? { publicReplySentAt: { not: null } }
+          : { status: "SENT" }),
       },
       select: { commentId: true },
     });
     const handledSet = new Set(handled.map((h) => h.commentId));
+
+    // Meta concede UN private reply por comentario, para siempre y para toda
+    // la app — no uno por campaña. Así que la comprobación de "ya gastado" NO
+    // se filtra por automationId: si otra campaña ya lo envió, o si falló por
+    // algo permanente (comentario anidado, borrado, fuera de la ventana de 7
+    // días), ninguna campaña va a poder mandarlo nunca.
+    //
+    // Sin esto, una campaña que aún no tiene fila en DmLog para ese comentario
+    // nunca cuenta como gestionada, así que cada barrido lo reencola, el
+    // worker lo intenta, Meta lo rechaza y BullMQ reintenta 3 veces: un bucle
+    // de errores cada 5 minutos durante las 72 h de lookback.
+    const consumed = await prisma.dmLog.findMany({
+      where: {
+        commentId: { in: candidateIds },
+        OR: [{ status: "SENT" }, PERMANENT_FAILURE_WHERE],
+      },
+      select: { commentId: true },
+    });
+    for (const c of consumed) handledSet.add(c.commentId);
 
     // Oldest first, so whoever commented earliest gets answered first, capped.
     const fresh = needsAction
