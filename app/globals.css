@@ -1,27 +1,57 @@
 @import "tailwindcss";
 
-/* ManyChat Alternative — Design System
-   Plain and functional. No gradients, glass, glow, or animation. */
+/* AI Operator — Design System
+   Apple clean: neutros fríos, un solo acento azul, tipografía SF,
+   letter-spacing negativo en titulares. Sin gradientes ni glow. */
 
 @theme inline {
   --color-background: #ffffff;
-  --color-foreground: #18181b;
-  --color-surface: #f7f7f8;
-  --color-surface-hover: #efeff1;
-  --color-border: #e4e4e7;
-  --color-border-hover: #d4d4d8;
-  --color-muted: #71717a;
-  --color-accent: #f97316;
-  --color-accent-hover: #ea580c;
-  --color-success: #16a34a;
-  --color-error: #dc2626;
-  --color-warning: #d97706;
-  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, monospace;
+  --color-foreground: #1d1d1f;
+  --color-surface: #fbfbfd;
+  --color-surface-hover: #f5f5f7;
+  --color-border: #e8e8ed;
+  --color-border-hover: #d2d2d7;
+  --color-muted: #6e6e73;
+  --color-accent: #0066ff;
+  --color-accent-hover: #0055d4;
+  --color-success: #34c759;
+  --color-error: #ff3b30;
+  --color-warning: #ff9500;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "Helvetica Neue", Inter, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* Modo oscuro: sigue al sistema. Los mismos tokens, invertidos. */
+@media (prefers-color-scheme: dark) {
+  @theme inline {
+    --color-background: #000000;
+    --color-foreground: #f5f5f7;
+    --color-surface: #1c1c1e;
+    --color-surface-hover: #2c2c2e;
+    --color-border: #2c2c2e;
+    --color-border-hover: #3a3a3c;
+    --color-muted: #98989d;
+    --color-accent: #0a84ff;
+    --color-accent-hover: #409cff;
+    --color-success: #30d158;
+    --color-error: #ff453a;
+    --color-warning: #ff9f0a;
+  }
 }
 
 html {
-  color-scheme: light;
+  color-scheme: light dark;
+}
+
+/* Titulares Apple: apretados y con peso. El cuerpo se queda normal. */
+h1,
+h2,
+h3 {
+  letter-spacing: -0.022em;
+}
+h1 {
+  letter-spacing: -0.03em;
 }
 
 body {
@@ -55,10 +85,11 @@ select:focus-visible {
   }
 }
 
-/* Panel — flat container. Replaces .glass / .glass-strong. */
+/* Panel — contenedor plano con esquinas Apple. */
 .panel {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
+  border-radius: 12px;
 }
 
 /* Kept as no-op aliases so existing markup degrades to plain surfaces
@@ -67,6 +98,7 @@ select:focus-visible {
 .glass-strong {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
+  border-radius: 12px;
 }
 
 .gradient-mesh {

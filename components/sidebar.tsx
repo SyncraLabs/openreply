@@ -10,13 +10,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navItems = [
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "Overview", href: "/overview" },
-  { label: "Inbox", href: "/inbox" },
-  { label: "Campaigns", href: "/campaigns" },
-  { label: "DM Logs", href: "/logs" },
-  { label: "Settings", href: "/settings" },
-  { label: "Diagnostics", href: "/diagnostics" },
+  { label: "Panel", href: "/dashboard" },
+  { label: "Rendimiento", href: "/overview" },
+  { label: "Contactos", href: "/contactos" },
+  { label: "Bandeja", href: "/inbox" },
+  { label: "Campañas", href: "/campaigns" },
+  { label: "Envíos", href: "/logs" },
+  { label: "Ajustes", href: "/settings" },
+  { label: "Diagnóstico", href: "/diagnostics" },
 ];
 
 interface SidebarProps {
@@ -51,8 +52,17 @@ export default function Sidebar({
         `}
       >
         <div className="px-6 py-5 border-b border-border">
-          <Link href="/dashboard" className="text-base font-semibold">
-            OpenReply
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-2.5 text-base font-semibold tracking-tight"
+          >
+            <span
+              aria-hidden
+              className="grid size-7 place-items-center rounded-lg bg-accent text-[13px] font-bold text-white"
+            >
+              AI
+            </span>
+            AI Operator
           </Link>
         </div>
 

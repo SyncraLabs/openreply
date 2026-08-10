@@ -46,3 +46,6 @@ next-env.d.ts
 
 # local, contiene secretos
 SETUP-RODRI.md
+
+# scripts locales de operación (no upstream)
+tools/
