@@ -3,7 +3,7 @@ import { getCampaignTemplate } from "@/lib/templates/campaign-templates";
 import { APP_NAME } from "@/lib/brand";
 
 export const metadata = {
-  title: `Login · ${APP_NAME}`,
+  title: "Login",
   description: "Sign in to manage Instagram comment-to-DM campaigns.",
 };
 

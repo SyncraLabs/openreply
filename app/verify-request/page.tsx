@@ -2,7 +2,7 @@ import Link from "next/link";
 import { APP_NAME } from "@/lib/brand";
 
 export const metadata = {
-  title: `Revisa tu correo · ${APP_NAME}`,
+  title: "Revisa tu correo",
   description: "A sign-in link was sent to your email.",
 };
 
