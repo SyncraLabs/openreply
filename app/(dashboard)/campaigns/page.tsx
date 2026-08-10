@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import { readCache, writeCache } from "@/lib/client-cache";
+import { useT } from "@/components/lang-provider";
 
 interface Campaign {
   id: string;
@@ -63,6 +64,7 @@ interface Campaign {
 }
 
 export default function CampaignsPage() {
+  const t = useT();
   const router = useRouter();
   const [automations, setAutomations] = useState<Campaign[]>([]);
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
@@ -261,7 +263,7 @@ export default function CampaignsPage() {
           publicReplyMessages: auto.publicReplyMessages,
           trackedDestinationUrl: auto.trackedLinks[0]?.destinationUrl ?? "",
           secondaryDestinationUrl: auto.trackedLinks[1]?.destinationUrl ?? "",
-          secondaryButtonLabel: auto.trackedLinks[1]?.label ?? "Open link",
+          secondaryButtonLabel: auto.trackedLinks[1]?.label ?? t("camp.openLink"),
           requireFollow: auto.requireFollow,
           followPromptMessage: auto.followPromptMessage,
           followPromptButtonLabel: auto.followPromptButtonLabel,
@@ -330,7 +332,7 @@ export default function CampaignsPage() {
             href="/campaigns/new"
             className="flex-1 rounded bg-accent px-4 py-2 text-center text-sm font-medium text-white hover:bg-accent-hover sm:flex-none"
           >
-            New Campaign
+            {t("camp.new")}
           </Link>
         </div>
       </div>
@@ -341,7 +343,7 @@ export default function CampaignsPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search campaigns by name, keyword, or message…"
+            placeholder={t("camp.search")}
             className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
           />
           <div className="inline-flex shrink-0 rounded-lg bg-surface p-1">
@@ -366,7 +368,7 @@ export default function CampaignsPage() {
       {/* Empty state */}
       {automations.length === 0 && (
         <div className="panel rounded p-8 text-center sm:p-12">
-          <h3 className="text-lg font-semibold mb-2">No campaigns yet</h3>
+          <h3 className="text-lg font-semibold mb-2">{t("camp.none")}</h3>
           <p className="text-sm text-muted mb-6 max-w-sm mx-auto">
             Create your first comment-to-DM campaign to turn a post or reel into a measurable conversation flow.
           </p>
@@ -374,7 +376,7 @@ export default function CampaignsPage() {
             href="/campaigns/new"
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded bg-accent text-sm font-semibold text-white hover:bg-accent-hover transition-colors"
           >
-            Create Campaign
+            {t("camp.create")}
           </Link>
         </div>
       )}
@@ -407,13 +409,13 @@ export default function CampaignsPage() {
                       e.stopPropagation();
                       setPlayingVideo({ url: videoUrl, postUrl: auto.postUrl });
                     }}
-                    aria-label="Play reel preview"
+                    aria-label={t("camp.playPreview")}
                     className="shrink-0"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={thumbnails[auto.postId]}
-                      alt="Campaign reel"
+                      alt={t("camp.reel")}
                       className="w-12 h-12 rounded object-cover border border-border hover:border-border-hover"
                       onError={(e) => {
                         e.currentTarget.style.display = "none";
@@ -431,7 +433,7 @@ export default function CampaignsPage() {
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={thumbnails[auto.postId]}
-                      alt="Campaign post"
+                      alt={t("camp.post")}
                       className="w-12 h-12 rounded object-cover border border-border"
                       onError={(e) => {
                         e.currentTarget.style.display = "none";
@@ -453,16 +455,16 @@ export default function CampaignsPage() {
                         : "bg-zinc-500/10 text-muted"
                     }`}
                   >
-                    {auto.isActive ? "Active" : "Paused"}
+                    {auto.isActive ? t("camp.active") : t("camp.paused")}
                   </span>
                   {auto.pendingNextReel && (
                     <span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-warning">
-                      Waiting for next reel
+                      {t("camp.waitingReel")}
                     </span>
                   )}
                   {auto.requireFollow && (
                     <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
-                      Follow gate
+                      {t("camp.followGate")}
                     </span>
                   )}
                   {auto.trackedLinks.length >= 2 && (
@@ -538,7 +540,7 @@ export default function CampaignsPage() {
                     onClick={() => void copyReelUrl(auto)}
                     className="shrink-0 rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:border-border-hover hover:text-foreground"
                   >
-                    {copiedId === auto.id ? "Copied!" : "Copy URL"}
+                    {copiedId === auto.id ? "Copied!" : t("camp.copyUrl")}
                   </button>
                 )}
                 {/* Toggle */}
@@ -563,7 +565,7 @@ export default function CampaignsPage() {
                     onClick={() =>
                       setMenuOpenId((cur) => (cur === auto.id ? null : auto.id))
                     }
-                    aria-label="More actions"
+                    aria-label={t("camp.moreActions")}
                     className="px-2 py-1 rounded text-lg leading-none text-muted hover:text-foreground"
                   >
                     ⋯
@@ -579,7 +581,7 @@ export default function CampaignsPage() {
                           onClick={() => void duplicateAutomation(auto)}
                           className="block w-full px-3 py-2 text-left text-sm text-foreground hover:bg-surface-hover"
                         >
-                          Duplicate
+                          {t("camp.duplicate")}
                         </button>
                         <button
                           onClick={() => {
@@ -588,7 +590,7 @@ export default function CampaignsPage() {
                           }}
                           className="block w-full px-3 py-2 text-left text-sm text-error hover:bg-surface-hover"
                         >
-                          Delete
+                          {t("camp.delete")}
                         </button>
                       </div>
                     </>
@@ -619,7 +621,7 @@ export default function CampaignsPage() {
                   rel="noreferrer"
                   className="text-zinc-300 hover:text-white"
                 >
-                  Open on Instagram
+                  {t("camp.openInstagram")}
                 </a>
               )}
               <button
@@ -627,7 +629,7 @@ export default function CampaignsPage() {
                 onClick={() => setPlayingVideo(null)}
                 className="text-zinc-300 hover:text-white"
               >
-                Close
+                {t("camp.close")}
               </button>
             </div>
             <video

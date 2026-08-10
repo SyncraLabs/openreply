@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
+import { APP_NAME, APP_TAGLINE_ES } from "@/lib/brand";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -17,13 +18,12 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "AI Operator",
-    template: "%s · AI Operator",
+    default: APP_NAME,
+    template: `%s · ${APP_NAME}`,
   },
-  description:
-    "Comentario a DM automático en Instagram, sobre la API oficial de Meta. Sin cuota mensual y sin límite de envíos.",
-  applicationName: "AI Operator",
-  appleWebApp: { capable: true, title: "AI Operator" },
+  description: APP_TAGLINE_ES,
+  applicationName: APP_NAME,
+  appleWebApp: { capable: true, title: APP_NAME },
   /**
    * Iconos declarados a mano con ?v=. Los navegadores cachean el favicon de
    * forma agresiva y no lo sueltan aunque cambie el fichero: la única forma

@@ -13,6 +13,7 @@ import LangToggle from "@/components/lang-toggle";
 import ThemeToggle from "@/components/theme-toggle";
 import { useT } from "@/components/lang-provider";
 import type { TranslationKey } from "@/lib/i18n";
+import { APP_NAME } from "@/lib/brand";
 
 const navItems: { key: TranslationKey; href: string }[] = [
   { key: "nav.dashboard", href: "/dashboard" },
@@ -72,7 +73,7 @@ export default function Sidebar({
               className="size-7 shrink-0 rounded-[9px]"
               style={{ boxShadow: "0 6px 16px -8px rgba(91, 91, 255, 0.7)" }}
             />
-            AI Operator
+            {APP_NAME}
           </Link>
         </div>
 

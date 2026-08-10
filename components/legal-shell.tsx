@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { APP_NAME } from "@/lib/brand";
 
 interface LegalShellProps {
   title: string;
@@ -18,7 +19,7 @@ export default function LegalShell({
       <header className="border-b border-border">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-5">
           <Link href="/" className="flex items-center gap-3">
-            <span className="text-lg font-bold text-foreground">AI Operator</span>
+            <span className="text-lg font-bold text-foreground">{APP_NAME}</span>
           </Link>
           <Link
             href="/login"

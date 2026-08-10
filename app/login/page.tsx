@@ -1,8 +1,9 @@
 import { signIn } from "@/lib/auth";
 import { getCampaignTemplate } from "@/lib/templates/campaign-templates";
+import { APP_NAME } from "@/lib/brand";
 
 export const metadata = {
-  title: "Login - AI Operator",
+  title: `Login · ${APP_NAME}`,
   description: "Sign in to manage Instagram comment-to-DM campaigns.",
 };
 
@@ -36,7 +37,7 @@ export default async function LoginPage({
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-semibold text-foreground">
-            AI Operator
+            {APP_NAME}
           </h1>
           <p className="text-muted text-sm leading-relaxed mt-2">
             {selectedTemplate
