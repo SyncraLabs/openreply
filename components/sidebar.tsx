@@ -8,17 +8,20 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import LangToggle from "@/components/lang-toggle";
 import ThemeToggle from "@/components/theme-toggle";
+import { useT } from "@/components/lang-provider";
+import type { TranslationKey } from "@/lib/i18n";
 
-const navItems = [
-  { label: "Panel", href: "/dashboard" },
-  { label: "Rendimiento", href: "/overview" },
-  { label: "Contactos", href: "/contactos" },
-  { label: "Bandeja", href: "/inbox" },
-  { label: "Campañas", href: "/campaigns" },
-  { label: "Envíos", href: "/logs" },
-  { label: "Ajustes", href: "/settings" },
-  { label: "Diagnóstico", href: "/diagnostics" },
+const navItems: { key: TranslationKey; href: string }[] = [
+  { key: "nav.dashboard", href: "/dashboard" },
+  { key: "nav.overview", href: "/overview" },
+  { key: "nav.contacts", href: "/contactos" },
+  { key: "nav.inbox", href: "/inbox" },
+  { key: "nav.campaigns", href: "/campaigns" },
+  { key: "nav.logs", href: "/logs" },
+  { key: "nav.settings", href: "/settings" },
+  { key: "nav.diagnostics", href: "/diagnostics" },
 ];
 
 interface SidebarProps {
@@ -33,6 +36,7 @@ export default function Sidebar({
   workspaceName,
 }: SidebarProps) {
   const pathname = usePathname();
+  const t = useT();
 
   return (
     <>
@@ -95,17 +99,18 @@ export default function Sidebar({
                   }
                 `}
               >
-                {item.label}
+                {t(item.key)}
               </Link>
             );
           })}
         </nav>
 
-        <div className="space-y-1 border-t border-border px-3 py-3">
+        <div className="space-y-2 border-t border-border px-3 py-3">
           <ThemeToggle />
-          <div className="px-3 pt-2">
+          <LangToggle />
+          <div className="px-3 pt-1">
             <p className="truncate text-sm text-foreground">{workspaceName}</p>
-            <p className="text-xs text-muted">Rodri OS · self-hosted</p>
+            <p className="text-xs text-muted">{t("shell.selfHosted")}</p>
           </div>
         </div>
       </aside>

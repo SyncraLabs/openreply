@@ -1,27 +1,58 @@
+"use client";
+
 /**
- * Status label for DM status. Plain text; color carries the state.
+ * Estado de un envío de DM. Píldora con color de fondo suave: en una tabla
+ * larga el color plano de texto no se lee de un vistazo, el fondo sí.
  */
 
-const statusConfig: Record<string, { text: string; label: string }> = {
-  SENT: { text: "text-success", label: "Sent" },
-  FAILED: { text: "text-error", label: "Failed" },
-  PENDING: { text: "text-warning", label: "Pending" },
-  SKIPPED_DEDUP: { text: "text-muted", label: "Dedup" },
-  SKIPPED_RATE_LIMIT: { text: "text-warning", label: "Rate limited" },
-  SKIPPED_PLAN_LIMIT: { text: "text-warning", label: "Skipped" },
-  SKIPPED_NO_MATCH: { text: "text-muted", label: "No match" },
-};
+import { useT } from "@/components/lang-provider";
+import type { TranslationKey } from "@/lib/i18n";
+
+const statusConfig: Record<string, { className: string; key: TranslationKey }> =
+  {
+    SENT: {
+      className: "bg-success/10 text-success",
+      key: "status.SENT",
+    },
+    FAILED: {
+      className: "bg-error/10 text-error",
+      key: "status.FAILED",
+    },
+    PENDING: {
+      className: "bg-warning/10 text-warning",
+      key: "status.PENDING",
+    },
+    SKIPPED_DEDUP: {
+      className: "bg-surface-hover text-muted",
+      key: "status.SKIPPED_DEDUP",
+    },
+    SKIPPED_RATE_LIMIT: {
+      className: "bg-warning/10 text-warning",
+      key: "status.SKIPPED_RATE_LIMIT",
+    },
+    SKIPPED_PLAN_LIMIT: {
+      className: "bg-warning/10 text-warning",
+      key: "status.SKIPPED_PLAN_LIMIT",
+    },
+    SKIPPED_NO_MATCH: {
+      className: "bg-surface-hover text-muted",
+      key: "status.SKIPPED_NO_MATCH",
+    },
+  };
 
 interface StatusBadgeProps {
   status: string;
 }
 
 export default function StatusBadge({ status }: StatusBadgeProps) {
+  const t = useT();
   const config = statusConfig[status] ?? statusConfig.PENDING;
 
   return (
-    <span className={`shrink-0 whitespace-nowrap text-sm ${config.text}`}>
-      {config.label}
+    <span
+      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${config.className}`}
+    >
+      {t(config.key)}
     </span>
   );
 }

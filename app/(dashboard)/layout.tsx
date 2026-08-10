@@ -1,7 +1,10 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import DashboardShell from "@/components/dashboard-shell";
+import { LangProvider } from "@/components/lang-provider";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
+import { LANG_COOKIE, normalizeLang } from "@/lib/i18n";
 import { ensureWorkspaceForUser } from "@/lib/workspace";
 
 export default async function DashboardLayout({
@@ -19,19 +22,25 @@ export default async function DashboardLayout({
     session.user.id,
     session.user.email
   );
-  const accounts = await prisma.instagramAccount.findMany({
-    where: { workspaceId: workspace.id },
-    orderBy: { connectedAt: "desc" },
-    select: { username: true },
-  });
+  const [accounts, cookieStore] = await Promise.all([
+    prisma.instagramAccount.findMany({
+      where: { workspaceId: workspace.id },
+      orderBy: { connectedAt: "desc" },
+      select: { username: true },
+    }),
+    cookies(),
+  ]);
+  const lang = normalizeLang(cookieStore.get(LANG_COOKIE)?.value);
 
   return (
-    <DashboardShell
-      workspaceName={workspace.name}
-      instagramUsername={accounts[0]?.username ?? null}
-      instagramAccountCount={accounts.length}
-    >
-      {children}
-    </DashboardShell>
+    <LangProvider lang={lang}>
+      <DashboardShell
+        workspaceName={workspace.name}
+        instagramUsername={accounts[0]?.username ?? null}
+        instagramAccountCount={accounts.length}
+      >
+        {children}
+      </DashboardShell>
+    </LangProvider>
   );
 }

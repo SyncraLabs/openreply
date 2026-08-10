@@ -34,10 +34,14 @@ export const viewport: Viewport = {
 };
 
 /**
- * Fija data-theme antes del primer paint. Sin esto, el navegador pinta el
- * tema claro y luego salta al oscuro — el flash blanco clásico.
+ * Fija data-theme antes del primer paint, para que no haya flash.
+ *
+ * El defecto es CLARO a propósito, no el del sistema: el tema claro cálido es
+ * la identidad de Rodri OS, y con muchos usando el SO en oscuro el defecto de
+ * sistema hacía que la app casi nunca se viese como su marca. Quien quiera
+ * oscuro lo elige y queda guardado.
  */
-const themeScript = `(function(){try{var t=localStorage.getItem("theme");if(t!=="light"&&t!=="dark"){t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme="light"}})()`;
+const themeScript = `(function(){try{var t=localStorage.getItem("theme");document.documentElement.dataset.theme=t==="dark"?"dark":"light"}catch(e){document.documentElement.dataset.theme="light"}})()`;
 
 export default function RootLayout({
   children,

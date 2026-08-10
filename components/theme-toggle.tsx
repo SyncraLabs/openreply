@@ -8,7 +8,12 @@
  * etiquetas se muestran/ocultan por CSS según ese atributo. Así no hay
  * mismatch de hidratación, ni parpadeo, ni un render extra al montar.
  */
+
+import { useT } from "@/components/lang-provider";
+
 export default function ThemeToggle() {
+  const t = useT();
+
   function toggle() {
     const root = document.documentElement;
     const siguiente = root.dataset.theme === "dark" ? "light" : "dark";
@@ -24,20 +29,20 @@ export default function ThemeToggle() {
     <button
       type="button"
       onClick={toggle}
-      aria-label="Cambiar tema"
+      aria-label={t("shell.themeDark")}
       className="flex h-9 w-full items-center gap-2.5 rounded-[10px] px-3 text-sm text-muted transition-colors hover:bg-surface-hover hover:text-foreground"
     >
       <span className="theme-when-light contents">
         <span aria-hidden className="text-base leading-none">
           ◑
         </span>
-        Tema oscuro
+        {t("shell.themeDark")}
       </span>
       <span className="theme-when-dark contents">
         <span aria-hidden className="text-base leading-none">
           ◐
         </span>
-        Tema claro
+        {t("shell.themeLight")}
       </span>
     </button>
   );

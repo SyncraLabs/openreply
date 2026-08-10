@@ -10,16 +10,14 @@
  * cambiar cuando alguien se renombra la cuenta.
  */
 
+import { cookies } from "next/headers";
 import { getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
+import { LANG_COOKIE, normalizeLang, translator } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
-const dateFmt = new Intl.DateTimeFormat("es-ES", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-});
+
 
 interface Contacto {
   commenterId: string;
@@ -34,7 +32,17 @@ interface Contacto {
 }
 
 export default async function ContactosPage() {
-  const workspaceId = await getCurrentWorkspaceId();
+  const [workspaceId, cookieStore] = await Promise.all([
+    getCurrentWorkspaceId(),
+    cookies(),
+  ]);
+  const lang = normalizeLang(cookieStore.get(LANG_COOKIE)?.value);
+  const t = translator(lang);
+  const dateFmt = new Intl.DateTimeFormat(lang === "en" ? "en-GB" : "es-ES", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
   if (!workspaceId) {
     return (
       <p className="text-sm text-muted">
@@ -94,31 +102,30 @@ export default async function ContactosPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold">Contactos</h1>
+        <h1 className="text-2xl font-semibold">{t("contacts.title")}</h1>
         <p className="mt-1 text-sm text-muted">
-          Quién ha comentado y ha entrado en una campaña, agrupado por persona.
+          {t("contacts.subtitle")}
         </p>
       </header>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Metrica etiqueta="Personas" valor={contactos.length} />
+        <Metrica etiqueta={t("contacts.people")} valor={contactos.length} />
         <Metrica
-          etiqueta="Recurrentes"
+          etiqueta={t("contacts.repeat")}
           valor={recurrentes}
-          pie="han comentado más de una vez"
+          pie={t("contacts.repeatFoot")}
         />
         <Metrica
-          etiqueta="DMs entregados"
+          etiqueta={t("contacts.delivered")}
           valor={contactos.reduce((n, c) => n + c.enviados, 0)}
         />
-        <Metrica etiqueta="Interacciones" valor={logs.length} />
+        <Metrica etiqueta={t("contacts.interactions")} valor={logs.length} />
       </div>
 
       {contactos.length === 0 ? (
         <div className="panel p-8 text-center">
           <p className="text-sm text-muted">
-            Todavía no ha comentado nadie en una campaña activa. En cuanto salga
-            el primer DM, aparecerá aquí.
+            {t("contacts.empty")}
           </p>
         </div>
       ) : (
@@ -126,11 +133,11 @@ export default async function ContactosPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
               <tr>
-                <th className="px-4 py-3 font-medium">Cuenta</th>
-                <th className="px-4 py-3 font-medium">DMs</th>
-                <th className="px-4 py-3 font-medium">Campañas</th>
-                <th className="px-4 py-3 font-medium">Último comentario</th>
-                <th className="px-4 py-3 font-medium whitespace-nowrap">Última vez</th>
+                <th className="px-4 py-3 font-medium">{t("contacts.account")}</th>
+                <th className="px-4 py-3 font-medium">{t("contacts.dms")}</th>
+                <th className="px-4 py-3 font-medium">{t("contacts.campaigns")}</th>
+                <th className="px-4 py-3 font-medium">{t("contacts.lastComment")}</th>
+                <th className="px-4 py-3 font-medium whitespace-nowrap">{t("contacts.lastSeen")}</th>
               </tr>
             </thead>
             <tbody>
@@ -151,7 +158,7 @@ export default async function ContactosPage() {
                       </a>
                     ) : (
                       <span className="font-medium text-muted">
-                        sin nombre
+                        {t("contacts.noName")}
                       </span>
                     )}
                     <div className="font-mono text-xs text-muted">
@@ -165,7 +172,7 @@ export default async function ContactosPage() {
                     )}
                     {c.dms > 1 && (
                       <span className="ml-2 rounded-full bg-surface-hover px-2 py-0.5 text-xs text-muted">
-                        recurrente
+                        {t("contacts.recurring")}
                       </span>
                     )}
                   </td>
@@ -186,9 +193,7 @@ export default async function ContactosPage() {
       )}
 
       <p className="text-xs text-muted">
-        Instagram no expone el email de quien comenta, así que no hay columna de
-        correo. Para cruzar un @ con su email hace falta un link con token único
-        por persona que capture el correo en el destino.
+        {t("contacts.noEmail")}
       </p>
     </div>
   );
