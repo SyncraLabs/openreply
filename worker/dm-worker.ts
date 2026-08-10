@@ -1,5 +1,6 @@
 import { createDMWorker } from "@/lib/queue/dm-worker";
 import { recordWorkerHeartbeat } from "@/lib/ops/worker-health";
+import { attachPendingReels } from "@/lib/polling/attach-next-reel";
 import { reconcileComments } from "@/lib/polling/comment-reconciler";
 import os from "node:os";
 
@@ -36,6 +37,19 @@ async function poll() {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[DM Worker] Comment reconciliation failed:", message);
+  }
+
+  // Engancha las campañas "próximo reel" en el mismo ciclo. El cron de Vercel
+  // corre una vez al día, y un reel recién publicado no puede esperar horas a
+  // que su campaña se active: las primeras horas son las que traen tráfico.
+  try {
+    const { bound } = await attachPendingReels();
+    if (bound > 0) {
+      console.log(`[DM Worker] ${bound} campaña(s) enganchadas a su reel`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("[DM Worker] Attach next reel failed:", message);
   }
 }
 
