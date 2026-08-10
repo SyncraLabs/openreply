@@ -34,6 +34,7 @@ import {
   type InstagramComment,
 } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
+import { PERMANENT_FAILURE_WHERE } from "@/lib/queue/permanent-errors";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
 
 // Only consider comments from the last few days — older ones are outside
@@ -206,13 +207,21 @@ async function sweepCampaign(
     // enough — the reply still has to land); otherwise a SENT DM is enough. This
     // is what lets a comment whose DM sent but whose public reply failed come
     // back and retry the reply.
+    // Además de lo completado, se descartan los fallos permanentes: un
+    // comentario anidado, uno cuyo único private reply ya se gastó, uno
+    // borrado o uno fuera de la ventana de 7 días no va a funcionar por
+    // reintentarlo. Sin esto, cada barrido lo reencola y Meta devuelve el
+    // mismo error cada 5 minutos durante las 72 h de lookback.
     const handled = await prisma.dmLog.findMany({
       where: {
         automationId: automation.id,
         commentId: { in: needsAction.map((c) => c.id) },
-        ...(automation.publicReplyEnabled
-          ? { publicReplySentAt: { not: null } }
-          : { status: "SENT" }),
+        OR: [
+          automation.publicReplyEnabled
+            ? { publicReplySentAt: { not: null } }
+            : { status: "SENT" },
+          PERMANENT_FAILURE_WHERE,
+        ],
       },
       select: { commentId: true },
     });
