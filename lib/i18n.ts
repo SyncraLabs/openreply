@@ -163,6 +163,31 @@ const dict = {
     "diag.workerAlerts": "Alertas recientes del worker",
     "diag.campaignFailures": "Fallos y omisiones de envío",
     "diag.timeline": "Cronología de eventos",
+
+    "nav.radar": "Radar",
+    "radar.title": "Radar",
+    "radar.subtitle":
+      "Qué está reventando en tu nicho. Ordenado por cuánto superó cada post lo normal de SU cuenta, no por reproducciones brutas.",
+    "radar.add": "Vigilar",
+    "radar.addPlaceholder": "@cuenta o enlace de perfil",
+    "radar.remove": "Dejar de vigilar",
+    "radar.refresh": "Actualizar datos",
+    "radar.refreshing": "Actualizando…",
+    "radar.score": "Outlier",
+    "radar.post": "Publicación",
+    "radar.account": "Cuenta",
+    "radar.views": "Reproducciones",
+    "radar.engagement": "Likes · coments",
+    "radar.date": "Fecha",
+    "radar.median": "mediana",
+    "radar.noCaption": "(sin texto)",
+    "radar.empty":
+      "Todavía no hay datos. Añade cuentas a vigilar y pulsa Actualizar.",
+    "radar.noProvider": "Falta la fuente de datos",
+    "radar.noProviderHelp":
+      "La API oficial de Meta no expone nada de cuentas ajenas. Configura APIFY_TOKEN en el entorno y el Radar empezará a llenarse.",
+    "radar.footnote":
+      "Outlier = reproducciones del post ÷ mediana de su cuenta. Un 3× o más significa que rompió su norma; por debajo de 1× fue un día flojo. Se usa mediana y no media porque un solo viral distorsiona la media de toda la cuenta.",
   },
   en: {
     "nav.dashboard": "Dashboard",
@@ -306,6 +331,30 @@ const dict = {
     "diag.workerAlerts": "Recent worker alerts",
     "diag.campaignFailures": "Campaign DM failures and skips",
     "diag.timeline": "Operational event timeline",
+
+    "nav.radar": "Radar",
+    "radar.title": "Radar",
+    "radar.subtitle":
+      "What is breaking out in your niche. Ranked by how far each post beat ITS OWN account's normal, not by raw views.",
+    "radar.add": "Watch",
+    "radar.addPlaceholder": "@account or profile link",
+    "radar.remove": "Stop watching",
+    "radar.refresh": "Refresh data",
+    "radar.refreshing": "Refreshing…",
+    "radar.score": "Outlier",
+    "radar.post": "Post",
+    "radar.account": "Account",
+    "radar.views": "Views",
+    "radar.engagement": "Likes · comments",
+    "radar.date": "Date",
+    "radar.median": "median",
+    "radar.noCaption": "(no caption)",
+    "radar.empty": "No data yet. Add accounts to watch and hit Refresh.",
+    "radar.noProvider": "Data source missing",
+    "radar.noProviderHelp":
+      "Meta's official API exposes nothing about other accounts. Set APIFY_TOKEN in the environment and the Radar will start filling up.",
+    "radar.footnote":
+      "Outlier = post views ÷ that account's median. 3× or more means it broke its own norm; below 1× was a slow day. Median, not mean, because a single viral skews the mean for the whole account.",
   },
 } as const;
 

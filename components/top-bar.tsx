@@ -12,6 +12,7 @@ const pageTitles: Record<string, TranslationKey> = {
   "/dashboard": "nav.dashboard",
   "/overview": "nav.overview",
   "/contactos": "nav.contacts",
+  "/radar": "nav.radar",
   "/inbox": "nav.inbox",
   "/campaigns": "nav.campaigns",
   "/automations": "nav.campaigns",

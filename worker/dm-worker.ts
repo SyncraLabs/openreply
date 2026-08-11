@@ -2,6 +2,7 @@ import { createDMWorker } from "@/lib/queue/dm-worker";
 import { recordWorkerHeartbeat } from "@/lib/ops/worker-health";
 import { attachPendingReels } from "@/lib/polling/attach-next-reel";
 import { reconcileComments } from "@/lib/polling/comment-reconciler";
+import { refreshRadar } from "@/lib/radar/refresh";
 import os from "node:os";
 
 const worker = createDMWorker();
@@ -57,10 +58,34 @@ async function poll() {
 setTimeout(() => void poll(), 10_000);
 const pollTimer = setInterval(() => void poll(), POLL_INTERVAL_MS);
 
+// El Radar va a su propio ritmo: pega contra un proveedor externo de pago y
+// las métricas de un post no cambian de minuto a minuto. Cada 6 h sobra, y así
+// el consumo de créditos es predecible.
+const RADAR_INTERVAL_MS = Number(
+  process.env.RADAR_REFRESH_INTERVAL_MS ?? 6 * 60 * 60_000
+);
+
+async function radar() {
+  try {
+    const { skipped, accounts, posts, failed } = await refreshRadar();
+    if (skipped) return; // Sin APIFY_TOKEN no hay nada que hacer; no es un error.
+    console.log(
+      `[Radar] ${accounts} cuenta(s), ${posts} post(s), ${failed} fallo(s)`
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("[Radar] Refresh failed:", message);
+  }
+}
+
+setTimeout(() => void radar(), 60_000);
+const radarTimer = setInterval(() => void radar(), RADAR_INTERVAL_MS);
+
 async function shutdown(signal: string) {
   console.log(`[DM Worker] ${signal} received, closing worker`);
   clearInterval(heartbeatTimer);
   clearInterval(pollTimer);
+  clearInterval(radarTimer);
   await worker.close();
   process.exit(0);
 }
