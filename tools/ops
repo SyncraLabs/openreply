@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+#
+# Ejecuta un script de operación contra la instancia en producción.
+#
+#   ./tools/ops campaigns          # lista las campañas
+#   ./tools/ops inspect            # estado general
+#   ./tools/ops queue-peek         # jobs fallidos en la cola
+#   ./tools/ops backup out.json    # volcado completo
+#
+# Carga .env.ops solo. Así ningún comando necesita que le peguen la URL de
+# Postgres a mano, que es como acaban las credenciales en el historial del
+# shell y en los logs.
+set -euo pipefail
+
+RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="$RAIZ/.env.ops"
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "Falta $ENV_FILE" >&2
+  echo "Copia .env.ops.example y rellena las URLs públicas de Railway." >&2
+  exit 1
+fi
+
+# `set -a` exporta todo lo que se defina a continuación.
+set -a
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+set +a
+
+if [[ $# -eq 0 ]]; then
+  echo "Scripts disponibles:"
+  for f in "$RAIZ"/tools/*.mts; do
+    [[ -e "$f" ]] || continue
+    nombre="$(basename "$f" .mts)"
+    # Primera línea con texto del comentario de cabecera, como descripción.
+    desc="$(grep -m1 -E '^\s+\*\s+\S' "$f" 2>/dev/null | sed 's/^[[:space:]]*\*[[:space:]]*//' || true)"
+    printf "  %-18s %s\n" "$nombre" "${desc:-}"
+  done
+  exit 0
+fi
+
+SCRIPT="$1"
+shift
+
+# Acepta "campaigns", "campaigns.mts" o una ruta completa.
+if [[ -f "$RAIZ/tools/$SCRIPT.mts" ]]; then
+  DESTINO="$RAIZ/tools/$SCRIPT.mts"
+elif [[ -f "$RAIZ/tools/$SCRIPT" ]]; then
+  DESTINO="$RAIZ/tools/$SCRIPT"
+elif [[ -f "$SCRIPT" ]]; then
+  DESTINO="$SCRIPT"
+else
+  echo "No encuentro el script '$SCRIPT'. Ejecuta ./tools/ops sin argumentos para ver la lista." >&2
+  exit 1
+fi
+
+cd "$RAIZ"
+exec npx tsx "$DESTINO" "$@"

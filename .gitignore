@@ -33,6 +33,7 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+!.env.ops.example
 
 # vercel
 .vercel
@@ -47,5 +48,8 @@ next-env.d.ts
 # local, contiene secretos
 SETUP-RODRI.md
 
-# scripts locales de operación (no upstream)
-tools/
+# Instrumental de operación: los SCRIPTS sí se versionan (así sobreviven a un
+# re-clonado y cualquier sesión los tiene). Los VOLCADOS no: backup.json lleva
+# dentro el token de Instagram cifrado y las sesiones de usuario.
+tools/*.json
+tools/*.txt
