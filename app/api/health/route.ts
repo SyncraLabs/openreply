@@ -7,12 +7,45 @@ export const runtime = "nodejs";
 // Health must reflect live state (worker heartbeat, queue depth), never a
 // cached response, or it reports stale worker start times.
 export const dynamic = "force-dynamic";
+export const maxDuration = 15;
+
+// A dependency that is *down* fails fast; one that is *unreachable* hangs.
+// ioredis retries forever by default and a dead Postgres behind Railway's TCP
+// proxy accepts the socket and then says nothing — so without this cap the
+// whole endpoint hangs until the platform kills it, and health checks that
+// never answer are worse than useless.
+const CHECK_TIMEOUT_MS = 5000;
 
 type CheckStatus = "ok" | "error";
 
 interface HealthCheck {
   status: CheckStatus;
   detail?: string;
+}
+
+async function withTimeout<T>(
+  label: string,
+  run: () => Promise<T>,
+  onFailure: (detail: string) => T
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      run(),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${label} timed out after ${CHECK_TIMEOUT_MS}ms`)),
+          CHECK_TIMEOUT_MS
+        );
+      }),
+    ]);
+  } catch (error) {
+    return onFailure(
+      error instanceof Error ? error.message : `${label} check failed`
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function checkDatabase(): Promise<HealthCheck> {
@@ -58,14 +91,23 @@ async function checkQueue(): Promise<HealthCheck & { counts?: unknown }> {
 
 export async function GET() {
   const [database, redis, queue, worker] = await Promise.all([
-    checkDatabase(),
-    checkRedis(),
-    checkQueue(),
-    getWorkerHealth().catch((error) => ({
+    withTimeout("database", checkDatabase, (detail) => ({
+      status: "error" as const,
+      detail,
+    })),
+    withTimeout("redis", checkRedis, (detail) => ({
+      status: "error" as const,
+      detail,
+    })),
+    withTimeout("queue", checkQueue, (detail) => ({
+      status: "error" as const,
+      detail,
+    })),
+    withTimeout("worker", getWorkerHealth, (error) => ({
       healthy: false,
       heartbeat: null,
       ageMs: null,
-      error: error instanceof Error ? error.message : "Worker check failed",
+      error,
     })),
   ]);
 
