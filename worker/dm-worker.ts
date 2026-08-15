@@ -3,6 +3,7 @@ import { recordWorkerHeartbeat } from "@/lib/ops/worker-health";
 import { attachPendingReels } from "@/lib/polling/attach-next-reel";
 import { reconcileComments } from "@/lib/polling/comment-reconciler";
 import { refreshRadar } from "@/lib/radar/refresh";
+import { recogerTodos } from "@/lib/tracker/collect";
 import os from "node:os";
 
 const worker = createDMWorker();
@@ -81,11 +82,35 @@ async function radar() {
 setTimeout(() => void radar(), 60_000);
 const radarTimer = setInterval(() => void radar(), RADAR_INTERVAL_MS);
 
+// Tracker diario. Cada 3 h y no una vez al día: si la recogida cae en un
+// momento en que Instagram aún no ha dejado el snapshot del día, el siguiente
+// ciclo la completa sin esperar 24 horas.
+const TRACKER_INTERVAL_MS = Number(
+  process.env.TRACKER_INTERVAL_MS ?? 3 * 60 * 60_000
+);
+
+async function tracker() {
+  try {
+    for (const r of await recogerTodos()) {
+      if (r.rellenados.length > 0) {
+        console.log(`[Tracker] ${r.date}: ${r.rellenados.join(", ")}`);
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("[Tracker] Recogida fallida:", message);
+  }
+}
+
+setTimeout(() => void tracker(), 90_000);
+const trackerTimer = setInterval(() => void tracker(), TRACKER_INTERVAL_MS);
+
 async function shutdown(signal: string) {
   console.log(`[DM Worker] ${signal} received, closing worker`);
   clearInterval(heartbeatTimer);
   clearInterval(pollTimer);
   clearInterval(radarTimer);
+  clearInterval(trackerTimer);
   await worker.close();
   process.exit(0);
 }

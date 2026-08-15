@@ -86,6 +86,7 @@ model Workspace {
   operationalEvents OperationalEvent[]
   radarAccounts     RadarAccount[]
   radarPosts        RadarPost[]
+  dailyMetrics      DailyMetric[]
 
   @@index([ownerId])
 }
@@ -451,4 +452,50 @@ model RadarPost {
   @@index([workspaceId])
   @@index([radarAccountId])
   @@index([outlierScore])
+}
+
+/// Una fila por día del tracker de redes y negocio.
+///
+/// Mezcla dos naturalezas a propósito: las cifras de redes se rellenan solas
+/// cuando hay fuente (Instagram ya se guarda a diario; YouTube por API), y las
+/// de negocio las escribe Rodrigo a mano porque no existe sitio de donde
+/// sacarlas. Por eso cada campo es opcional: una fila puede estar a medias.
+///
+/// Los porcentajes de variación, CPL y ROAS NO se guardan: se calculan al
+/// leer, para que corregir un dato de ayer recalcule todo lo que dependa de él.
+model DailyMetric {
+  id          String   @id @default(cuid())
+  workspaceId String
+  /// Medianoche UTC del día al que pertenece la fila.
+  date        DateTime @db.Date
+
+  // --- Redes (automáticas cuando hay fuente) ---
+  youtube   Int?
+  instagram Int?
+  tiktok    Int?
+  igSyncra  Int?
+
+  // --- Negocio (manual) ---
+  contenido          Int?
+  leads              Int?
+  llamadasReservadas Int?
+  llamadasHechas     Int?
+  clientes           Int?
+  ingresos           Decimal? @db.Decimal(10, 2)
+  mrr                Decimal? @db.Decimal(10, 2)
+  gastoAds           Decimal? @db.Decimal(10, 2)
+
+  notas String?
+
+  /// Qué campos vienen de una fuente automática. Un campo listado aquí se
+  /// sobrescribe en cada recogida; lo que Rodrigo escriba a mano no se toca.
+  autoFields String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, date])
+  @@index([workspaceId, date])
 }

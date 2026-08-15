@@ -169,6 +169,20 @@ const dict = {
     "diag.campaignFailures": "Fallos y omisiones de envío",
     "diag.timeline": "Cronología de eventos",
 
+    "nav.tracker": "Tracker",
+    "tracker.title": "Tracker diario",
+    "tracker.subtitle":
+      "Una fila por día. Las redes se rellenan solas cuando hay fuente; lo de negocio lo escribes tú en la tabla.",
+    "tracker.today": "Hoy",
+    "tracker.collect": "Actualizar redes",
+    "tracker.collecting": "Actualizando…",
+    "tracker.igGrowth": "Instagram",
+    "tracker.showRate": "Asistencia",
+    "tracker.closeRate": "Cierre",
+    "tracker.empty": "Todavía no hay días registrados.",
+    "tracker.footnote":
+      "Clic en cualquier celda para editarla. El punto azul marca los datos automáticos: si editas uno a mano, deja de actualizarse solo. Los porcentajes, CPL y ROAS se calculan al vuelo, así que corregir un día recalcula lo que dependa de él.",
+
     "nav.radar": "Radar",
     "radar.title": "Radar",
     "radar.subtitle":
@@ -341,6 +355,20 @@ const dict = {
     "diag.workerAlerts": "Recent worker alerts",
     "diag.campaignFailures": "Campaign DM failures and skips",
     "diag.timeline": "Operational event timeline",
+
+    "nav.tracker": "Tracker",
+    "tracker.title": "Daily tracker",
+    "tracker.subtitle":
+      "One row per day. Social numbers fill themselves where a source exists; business numbers you type in the table.",
+    "tracker.today": "Today",
+    "tracker.collect": "Refresh socials",
+    "tracker.collecting": "Refreshing…",
+    "tracker.igGrowth": "Instagram",
+    "tracker.showRate": "Show rate",
+    "tracker.closeRate": "Close rate",
+    "tracker.empty": "No days recorded yet.",
+    "tracker.footnote":
+      "Click any cell to edit. The blue dot marks automatic values: edit one by hand and it stops auto-updating. Percentages, CPL and ROAS are computed on read, so fixing one day recalculates whatever depends on it.",
 
     "nav.radar": "Radar",
     "radar.title": "Radar",

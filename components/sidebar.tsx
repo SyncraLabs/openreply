@@ -20,6 +20,7 @@ const navItems: { key: TranslationKey; href: string }[] = [
   { key: "nav.overview", href: "/overview" },
   { key: "nav.contacts", href: "/contactos" },
   { key: "nav.radar", href: "/radar" },
+  { key: "nav.tracker", href: "/tracker" },
   { key: "nav.inbox", href: "/inbox" },
   { key: "nav.campaigns", href: "/campaigns" },
   { key: "nav.logs", href: "/logs" },
