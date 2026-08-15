@@ -137,6 +137,11 @@ const dict = {
     "camp.post": "Publicación de la campaña",
     "camp.reel": "Reel de la campaña",
     "camp.playPreview": "Ver el reel",
+    "camp.metrics": "Métricas",
+    "camp.save": "Guardar",
+    "camp.saving": "Guardando…",
+    "camp.rename": "Renombrar",
+    "camp.untitled": "Sin nombre",
 
     "inbox.title": "Bandeja",
     "inbox.conversations": "Conversaciones",
@@ -305,6 +310,11 @@ const dict = {
     "camp.post": "Campaign post",
     "camp.reel": "Campaign reel",
     "camp.playPreview": "Play reel preview",
+    "camp.metrics": "Metrics",
+    "camp.save": "Save changes",
+    "camp.saving": "Saving…",
+    "camp.rename": "Rename",
+    "camp.untitled": "Untitled",
 
     "inbox.title": "Inbox",
     "inbox.conversations": "Conversations",

@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import { readCache, writeCache } from "@/lib/client-cache";
 import { useT } from "@/components/lang-provider";
+import InlineRename from "@/components/inline-rename";
 
 interface Campaign {
   id: string;
@@ -444,7 +445,17 @@ export default function CampaignsPage() {
               )}
               <div className="min-w-[12rem] flex-1">
                 <div className="flex flex-wrap items-center gap-2 mb-2">
-                  <h3 className="text-sm font-semibold truncate">{auto.name}</h3>
+                  <InlineRename
+                    id={auto.id}
+                    value={auto.name}
+                    onRenamed={(nuevo) =>
+                      setAutomations((prev) =>
+                        prev.map((a) =>
+                          a.id === auto.id ? { ...a, name: nuevo } : a
+                        )
+                      )
+                    }
+                  />
                   <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-muted">
                     @{auto.instagramAccount.username}
                   </span>

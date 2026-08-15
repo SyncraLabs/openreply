@@ -14,6 +14,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useT } from "@/components/lang-provider";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import PostPicker from "@/components/post-picker";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
@@ -131,6 +133,7 @@ function Toggle({
 
 export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderProps) {
   const router = useRouter();
+  const t = useT();
 
   const [loading, setLoading] = useState(mode === "edit");
   const [notFound, setNotFound] = useState(false);
@@ -615,13 +618,23 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                 Go Live
               </button>
             ))}
+          {/* Al abrir una campaña se entra al editor, no a una ficha de solo
+              lectura: las métricas quedan aquí, a un clic. */}
+          {mode === "edit" && campaignId && (
+            <Link
+              href={`/campaigns/${campaignId}/insights`}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-border-hover hover:text-foreground"
+            >
+              {t("camp.metrics")}
+            </Link>
+          )}
           <button
             type="button"
             onClick={() => handleSubmit(mode === "new" ? true : isActive)}
             disabled={saving}
             className="rounded-lg bg-accent px-5 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
           >
-            {saving ? "Saving…" : mode === "new" ? "Go Live" : "Save changes"}
+            {saving ? t("camp.saving") : mode === "new" ? "Go Live" : t("camp.save")}
           </button>
         </div>
       </div>

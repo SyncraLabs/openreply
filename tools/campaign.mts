@@ -76,8 +76,9 @@ switch (cmd) {
   }
 
   case "conflicts": {
+    // Incluye las pausadas: una campaña recién creada suele estar en pausa y es
+    // justo cuando hay que saber si al activarla la va a tapar una global.
     const activas = await prisma.automation.findMany({
-      where: { isActive: true },
       orderBy: { createdAt: "asc" },
     });
     const globales = activas.filter((a) => a.matchAnyPost);
@@ -97,10 +98,14 @@ switch (cmd) {
       }
       console.log("    le gana el DM a estas, por ser más antigua:");
       for (const e of tapadas) {
+        // El matcher del worker es case-insensitive (lib/utils/keyword-matcher.ts),
+        // así que aquí hay que comparar igual. Con `includes` a secas, "CLAUDE" no
+        // casaba con "claude" y el detector daba luz verde a un choque real.
+        const palabrasGlobal = g.keywords.map((k) => k.toLowerCase());
         const solapa =
           g.matchAnyWord ||
           e.matchAnyWord ||
-          e.keywords.some((k) => g.keywords.includes(k));
+          e.keywords.some((k) => palabrasGlobal.includes(k.toLowerCase()));
         console.log(`      - ${e.name}${solapa ? "  ← palabras solapadas" : ""}`);
       }
       if (g.publicReplyEnabled) {
