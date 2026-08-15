@@ -108,7 +108,10 @@ export default function CampaignsPage() {
   }, [selectedAccountId]);
 
   useEffect(() => {
-    fetch("/api/dashboard/stats")
+    // /api/dashboard/stats lanza 17 consultas (envíos, clics, keywords, la
+    // gráfica de 7 días…) y aquí sólo hacía falta la lista de cuentas.
+    // /api/instagram/accounts devuelve justo eso con una.
+    fetch("/api/instagram/accounts")
       .then((res) => res.json())
       .then((payload) => {
         if (payload.success) setAccounts(payload.data.instagramAccounts ?? []);

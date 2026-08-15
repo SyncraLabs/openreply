@@ -72,7 +72,9 @@ export default function LogsPage() {
   }, [page, statusFilter, selectedAccountId]);
 
   useEffect(() => {
-    fetch("/api/dashboard/stats")
+    // Igual que en Campañas: aquí sólo hace falta la lista de cuentas, no las
+    // 17 consultas de /api/dashboard/stats.
+    fetch("/api/instagram/accounts")
       .then((res) => res.json())
       .then((payload) => {
         if (payload.success) setAccounts(payload.data.instagramAccounts ?? []);
