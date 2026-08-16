@@ -59,11 +59,12 @@ async function poll() {
 setTimeout(() => void poll(), 10_000);
 const pollTimer = setInterval(() => void poll(), POLL_INTERVAL_MS);
 
-// El Radar va a su propio ritmo: pega contra un proveedor externo de pago y
-// las métricas de un post no cambian de minuto a minuto. Cada 6 h sobra, y así
-// el consumo de créditos es predecible.
+// El Radar pega contra un proveedor de pago que cobra por resultado, así que
+// la frecuencia ES presupuesto. Una vez al día: con 12 posts por cuenta caben
+// 5 cuentas dentro del plan gratis de Apify (5 USD/mes). Las métricas de un
+// post no se mueven lo bastante en unas horas como para pagar por mirarlas.
 const RADAR_INTERVAL_MS = Number(
-  process.env.RADAR_REFRESH_INTERVAL_MS ?? 6 * 60 * 60_000
+  process.env.RADAR_REFRESH_INTERVAL_MS ?? 24 * 60 * 60_000
 );
 
 async function radar() {

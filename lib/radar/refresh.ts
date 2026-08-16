@@ -16,8 +16,20 @@
 import { prisma } from "@/lib/db/client";
 import { getRadarProvider, type RadarProviderPost } from "@/lib/radar/provider";
 
-/** Posts por cuenta que se piden en cada refresco. */
-const POSTS_PER_ACCOUNT = 24;
+/**
+ * Posts por cuenta y refresco.
+ *
+ * Esto es dinero: el scraper cobra por resultado (~2,30 USD/1000). Con el plan
+ * gratis de Apify (5 USD/mes) el presupuesto real es de unos 2.100 resultados
+ * al mes en TOTAL, así que:
+ *
+ *   cuentas × POSTS_PER_ACCOUNT × refrescos_al_mes  ≤  2100
+ *
+ * Con 12 posts y un refresco diario caben 5 cuentas (1.800/mes). Subir la
+ * frecuencia o el número de posts se come el plan en días, y las métricas de
+ * un post no cambian tanto como para justificarlo.
+ */
+const POSTS_PER_ACCOUNT = Number(process.env.RADAR_POSTS_PER_ACCOUNT ?? 12);
 
 /** Con menos posts con views, la mediana no significa nada todavía. */
 const MIN_POSTS_FOR_MEDIAN = 4;
