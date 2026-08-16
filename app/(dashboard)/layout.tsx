@@ -5,6 +5,7 @@ import { LangProvider } from "@/components/lang-provider";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
 import { LANG_COOKIE, normalizeLang } from "@/lib/i18n";
+import { getRadarProvider } from "@/lib/radar/provider";
 import { ensureWorkspaceForUser } from "@/lib/workspace";
 
 export default async function DashboardLayout({
@@ -35,6 +36,7 @@ export default async function DashboardLayout({
   return (
     <LangProvider lang={lang}>
       <DashboardShell
+        radarEnabled={getRadarProvider() !== null}
         workspaceName={workspace.name}
         instagramUsername={accounts[0]?.username ?? null}
         instagramAccountCount={accounts.length}

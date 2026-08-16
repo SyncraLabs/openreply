@@ -32,12 +32,14 @@ interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
   workspaceName: string;
+  radarEnabled: boolean;
 }
 
 export default function Sidebar({
   isOpen,
   onClose,
   workspaceName,
+  radarEnabled,
 }: SidebarProps) {
   const pathname = usePathname();
   const t = useT();
@@ -80,7 +82,9 @@ export default function Sidebar({
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navItems.map((item) => {
+          {navItems
+            .filter((i) => i.href !== "/radar" || radarEnabled)
+            .map((item) => {
             const isActive =
               pathname === item.href || pathname.startsWith(item.href + "/");
             return (
