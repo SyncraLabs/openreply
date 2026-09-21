@@ -674,12 +674,81 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
 }
 
 /**
+ * Buttons from the tool this account used before (ManyChat). Its opening DMs
+ * are still sitting in people's inboxes, and their buttons fire postbacks
+ * with `ACT::<id>` payloads that nobody answers any more: the person taps
+ * "VER" and gets silence. Meta allows a reply because the tap is a user
+ * action, so answer with the library, or with the exact resource when the
+ * legacy id is known.
+ */
+const LEGACY_BUTTON_PREFIX = "ACT::";
+
+const LEGACY_BUTTON_LIBRARY = {
+  text: "ese botón es de mi sistema antiguo y ya no funciona 🙏 todo lo que he compartido está en la biblioteca, gratis:",
+  label: "abrir la biblioteca",
+  url: "https://archivo.syncralabs.es/v/ig-boton-antiguo",
+};
+
+/** Legacy ids whose resource is known, by the hex after `ACT::`. */
+const LEGACY_BUTTON_RESOURCES: Record<string, typeof LEGACY_BUTTON_LIBRARY> = {
+  // "VER 🙏" — la guía de webs animadas con IA.
+  cd538496a2b44507653be194305e958f: {
+    text: "aquí tienes la guía completa para hacer webs animadas con IA 🚀",
+    label: "ver la guía",
+    url: "https://www.youtube.com/watch?v=c6eyWs2uBkE",
+  },
+};
+
+async function answerLegacyButton(
+  instagramAccountId: string,
+  userId: string,
+  payload: string
+): Promise<void> {
+  const account = await prisma.instagramAccount.findFirst({
+    where: { instagramId: instagramAccountId },
+    select: { instagramId: true, accessToken: true },
+  });
+  if (!account?.accessToken) return;
+
+  let accessToken: string;
+  try {
+    accessToken = decryptToken(account.accessToken);
+  } catch {
+    return;
+  }
+
+  const legacyId = payload.slice(LEGACY_BUTTON_PREFIX.length);
+  const answer = LEGACY_BUTTON_RESOURCES[legacyId] ?? LEGACY_BUTTON_LIBRARY;
+
+  try {
+    await sendDirectMessageWithLinkButton(
+      accessToken,
+      account.instagramId,
+      userId,
+      answer.text,
+      [{ title: answer.label, url: answer.url }]
+    );
+    console.log(`[DM Worker] Answered legacy button ${legacyId} for ${userId}`);
+  } catch (error) {
+    console.log(
+      "[DM Worker] Failed to answer legacy button:",
+      formatError(error)
+    );
+  }
+}
+
+/**
  * Deliver the reveal message after a user taps an opening DM's button.
  * The postback payload is `reveal:<automationId>`; the sender is the user's
  * IGSID (same id as their comment author id), which we DM directly.
  */
 async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
   const { instagramAccountId, userId, payload, fallback } = job.data;
+
+  if (payload.startsWith(LEGACY_BUTTON_PREFIX)) {
+    await answerLegacyButton(instagramAccountId, userId, payload);
+    return;
+  }
 
   const isFollowCheck = payload.startsWith("followcheck:");
   if (!isFollowCheck && !payload.startsWith("reveal:")) return;
