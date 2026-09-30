@@ -33,6 +33,7 @@ import {
   reserveWorkspaceDMSend,
 } from "@/lib/billing/usage";
 import { recordWorkerAlert } from "@/lib/ops/worker-health";
+import { computeSendAt, SCHEDULE_GRACE_MS } from "./send-schedule";
 import {
   buildTrackedUrl,
   renderMessageWithTracking,
@@ -198,11 +199,13 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     mediaId,
   } = job.data;
   const requeueAttempt = job.data.requeueAttempt ?? 0;
+  const { scheduledAutomationId } = job.data;
 
   const automations = await prisma.automation.findMany({
     where: {
       // Match campaigns bound to this specific post, plus any-post campaigns.
       OR: [{ postId: mediaId }, { matchAnyPost: true }],
+      ...(scheduledAutomationId ? { id: scheduledAutomationId } : {}),
       isActive: true,
       instagramAccount: {
         instagramId: instagramAccountId,
@@ -249,6 +252,20 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     const alreadyDmd = existingLog?.status === "SENT";
     const alreadyPublicReplied = Boolean(existingLog?.publicReplySentAt);
     const needsDm = !alreadyDmd;
+
+    // A delayed reply is already waiting on its own job; the webhook/polling
+    // pass must not send it early. Only once it's well overdue (its job was
+    // lost) does this pass send it instead.
+    const isScheduledRun = scheduledAutomationId === automation.id;
+    const scheduledAt =
+      existingLog?.status === "PENDING" ? existingLog.scheduledAt : null;
+    if (
+      !isScheduledRun &&
+      scheduledAt &&
+      scheduledAt.getTime() > Date.now() - SCHEDULE_GRACE_MS
+    ) {
+      continue;
+    }
 
     // Skip only when there is genuinely nothing left to do. A comment whose DM
     // already sent but whose public reply never posted (e.g. it hit a rate
@@ -349,6 +366,29 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       });
     }
 
+    // Send delay / window: park the whole reply (public + DM) on a delayed job.
+    if (needsDm && !isScheduledRun && !scheduledAt) {
+      const sendAt = computeSendAt(automation);
+      const delay = sendAt.getTime() - Date.now();
+      if (delay > 1000) {
+        await prisma.dmLog.update({
+          where: {
+            automationId_commentId: { automationId: automation.id, commentId },
+          },
+          data: { status: "PENDING", scheduledAt: sendAt },
+        });
+        await getDMQueue().add(
+          "process-comment",
+          { ...job.data, scheduledAutomationId: automation.id },
+          {
+            delay,
+            jobId: `comment_${instagramAccountId}_${commentId}_sched_${automation.id}`,
+          }
+        );
+        continue;
+      }
+    }
+
     // Public reply leg — decoupled from the DM and posted first so a DM failure
     // (e.g. a non-follower whose messaging is restricted) never suppresses it.
     // Idempotent across retries via publicReplySentAt.
@@ -404,11 +444,19 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     // for a private reply". Skip them explicitly instead of burning an API call
     // and logging a failure the user can do nothing about. The public reply
     // above still goes out per campaign — only the DM leg is deduped.
+    // An older campaign still waiting on its send delay has claimed it too.
     const privateReplyUsedBy = await prisma.dmLog.findFirst({
       where: {
         commentId,
-        status: "SENT",
         automationId: { not: automation.id },
+        OR: [
+          { status: "SENT" },
+          {
+            status: "PENDING",
+            scheduledAt: { not: null },
+            automation: { createdAt: { lt: automation.createdAt } },
+          },
+        ],
       },
       select: { automation: { select: { name: true } } },
     });
@@ -420,7 +468,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         data: {
           status: "SKIPPED_DEDUP",
           matchedKeyword: matchResult.matchedKeyword,
-          errorMessage: `Another campaign (${privateReplyUsedBy.automation?.name ?? "unknown"}) already sent the one private reply Instagram allows for this comment`,
+          errorMessage: `Another campaign (${privateReplyUsedBy.automation?.name ?? "unknown"}) already took the one private reply Instagram allows for this comment`,
         },
       });
       continue;
@@ -1006,10 +1054,12 @@ async function processFollowUp(job: Job<ProcessFollowUpJob>): Promise<void> {
  */
 async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
   const { instagramAccountId, messageId, messageText, senderId } = job.data;
+  const { scheduledAutomationId } = job.data;
 
   const automations = await prisma.automation.findMany({
     where: {
       dmTriggerEnabled: true,
+      ...(scheduledAutomationId ? { id: scheduledAutomationId } : {}),
       isActive: true,
       instagramAccount: { instagramId: instagramAccountId },
     },
@@ -1064,6 +1114,34 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
       commentId: dedupeId,
       matchedKeyword: matchResult.matchedKeyword,
     };
+
+    // Send delay / window: reply later from a delayed copy of this job.
+    if (scheduledAutomationId !== automation.id) {
+      if (existingLog?.status === "PENDING" && existingLog.scheduledAt) continue;
+      const sendAt = computeSendAt(automation);
+      const delay = sendAt.getTime() - Date.now();
+      if (delay > 1000) {
+        await prisma.dmLog.upsert({
+          where: {
+            automationId_commentId: {
+              automationId: automation.id,
+              commentId: dedupeId,
+            },
+          },
+          create: { ...logBase, status: "PENDING", scheduledAt: sendAt },
+          update: { status: "PENDING", scheduledAt: sendAt },
+        });
+        await getDMQueue().add(
+          MESSAGE_JOB_NAME,
+          { ...job.data, scheduledAutomationId: automation.id },
+          {
+            delay,
+            jobId: `message_${Buffer.from(messageId).toString("base64url")}_sched_${automation.id}`,
+          }
+        );
+        continue;
+      }
+    }
 
     if (!automation.instagramAccount.accessToken) {
       await prisma.dmLog.upsert({

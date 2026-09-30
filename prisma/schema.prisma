@@ -198,6 +198,15 @@ model Automation {
   // Minutes to wait after the link is delivered before sending the follow-up.
   // 0 sends it right away.
   followUpDelayMinutes    Int      @default(0)
+  // Wait before replying so it doesn't land instantly. A random value between
+  // min and max is picked per reply; equal values mean a fixed wait.
+  sendDelayMinSeconds     Int      @default(0)
+  sendDelayMaxSeconds     Int      @default(0)
+  // Optional daily sending window, in minutes from midnight in
+  // sendWindowTimezone. Replies due outside it wait until it opens.
+  sendWindowStart         Int?
+  sendWindowEnd           Int?
+  sendWindowTimezone      String   @default("Europe/Madrid")
   publicReplyEnabled      Boolean  @default(false)
   publicReplyMessage      String?
   publicReplyMessages     String[] @default([])
@@ -235,6 +244,8 @@ model DmLog {
   attempts       Int       @default(0)
   dmSentAt       DateTime?
   errorMessage   String?
+  // Set while a delayed reply waits in the queue (see send-schedule.ts).
+  scheduledAt    DateTime?
 
   // The public comment reply is delivered independently of the DM, so its
   // outcome is tracked separately. publicReplySentAt makes it idempotent across

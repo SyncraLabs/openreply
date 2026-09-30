@@ -33,6 +33,9 @@ export interface ProcessCommentJob {
   // Which path enqueued this comment. Recorded in the shared ProcessedComment
   // dedup store so the reconciler can tell webhook- from polling-caught comments.
   source?: CommentSource;
+  // Set on the delayed re-run of a campaign with a send delay or window: only
+  // this campaign is processed, and it sends instead of scheduling again.
+  scheduledAutomationId?: string;
 }
 
 // Delivered when a user taps an opening DM's button — carries the reveal target.
@@ -61,6 +64,8 @@ export interface ProcessMessageJob {
   messageId: string;
   messageText: string;
   senderId: string;
+  // Same as ProcessCommentJob.scheduledAutomationId.
+  scheduledAutomationId?: string;
 }
 
 export type DmQueueJob =

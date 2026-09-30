@@ -216,12 +216,12 @@ beforeEach(() => {
   mockPrisma.dmLog.findUnique.mockResolvedValue(null);
   mockPrisma.dmLog.create.mockResolvedValue({});
   // Two different lookups share findFirst: the cross-campaign private-reply
-  // check (keyed on status SENT) and the postback's name lookup. Only the
-  // latter should resolve by default, or every comment would look like a
-  // duplicate of an already-answered one.
+  // check (the one with an OR of SENT / parked) and the postback's name
+  // lookup. Only the latter should resolve by default, or every comment would
+  // look like a duplicate of an already-answered one.
   mockPrisma.dmLog.findFirst.mockImplementation(
-    async (args: { where?: { status?: string } } = {}) =>
-      args.where?.status === "SENT" ? null : { commenterName: "commenter_user" }
+    async (args: { where?: { OR?: unknown } } = {}) =>
+      args.where?.OR ? null : { commenterName: "commenter_user" }
   );
   mockPrisma.dmLog.upsert.mockResolvedValue({});
   mockPrisma.dmLog.update.mockResolvedValue({});
@@ -821,8 +821,8 @@ describe("DM Worker — Full Pipeline", () => {
 describe("DM Worker — one private reply per comment", () => {
   it("should skip a campaign when another already used the comment's private reply", async () => {
     mockPrisma.dmLog.findFirst.mockImplementation(
-      async (args: { where?: { status?: string } } = {}) =>
-        args.where?.status === "SENT"
+      async (args: { where?: { OR?: unknown } } = {}) =>
+        args.where?.OR
           ? { automation: { name: "openreply 1" } }
           : { commenterName: "commenter_user" }
     );
@@ -1083,6 +1083,108 @@ describe("DM Worker — DM keyword trigger", () => {
       expect.objectContaining({
         create: expect.objectContaining({ status: "FAILED" }),
       })
+    );
+  });
+});
+
+describe("DM Worker — send delay", () => {
+  const delayedAutomation = {
+    ...mockAutomation,
+    sendDelayMinSeconds: 120,
+    sendDelayMaxSeconds: 120,
+    sendWindowStart: null,
+    sendWindowEnd: null,
+    sendWindowTimezone: "Europe/Madrid",
+  };
+
+  beforeEach(() => {
+    mockPrisma.automation.findMany.mockResolvedValue([delayedAutomation]);
+  });
+
+  it("should park the reply on a delayed job instead of sending it", async () => {
+    const processor = getProcessor();
+    await processor(createMockJob());
+
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    expect(mockReserveWorkspaceDMSend).not.toHaveBeenCalled();
+    expect(mockPrisma.dmLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "PENDING",
+          scheduledAt: expect.any(Date),
+        }),
+      })
+    );
+    const [name, data, opts] = mockQueueAdd.mock.calls[0];
+    expect(name).toBe("process-comment");
+    expect(data).toMatchObject({ scheduledAutomationId: "auto_789" });
+    expect(opts.delay).toBeGreaterThan(115_000);
+    expect(opts.delay).toBeLessThanOrEqual(120_000);
+  });
+
+  it("should send on the delayed run", async () => {
+    mockPrisma.dmLog.findUnique.mockResolvedValue({
+      status: "PENDING",
+      scheduledAt: new Date(),
+      publicReplySentAt: null,
+    });
+    const processor = getProcessor();
+    await processor(
+      createMockJob({ ...mockJobData, scheduledAutomationId: "auto_789" } as typeof mockJobData)
+    );
+
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+    expect(mockSendPrivateReply).toHaveBeenCalled();
+  });
+
+  it("should not send early when the comment comes back before its time", async () => {
+    mockPrisma.dmLog.findUnique.mockResolvedValue({
+      status: "PENDING",
+      scheduledAt: new Date(Date.now() + 60_000),
+      publicReplySentAt: null,
+    });
+    const processor = getProcessor();
+    await processor(createMockJob());
+
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+  });
+
+  it("should send itself when the delayed job is long overdue", async () => {
+    mockPrisma.dmLog.findUnique.mockResolvedValue({
+      status: "PENDING",
+      scheduledAt: new Date(Date.now() - 60 * 60_000),
+      publicReplySentAt: null,
+    });
+    const processor = getProcessor();
+    await processor(createMockJob());
+
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+    expect(mockSendPrivateReply).toHaveBeenCalled();
+  });
+
+  it("should park a DM-triggered reply too", async () => {
+    mockPrisma.automation.findMany.mockResolvedValue([
+      { ...delayedAutomation, dmTriggerEnabled: true, requireFollow: false },
+    ]);
+    const processor = getProcessor();
+    await processor({
+      name: "process-message",
+      data: {
+        instagramAccountId: "ig_456",
+        messageId: "mid_abc",
+        messageText: "LINK",
+        senderId: "commenter_999",
+      },
+      id: "message_job_001",
+      attemptsMade: 0,
+    });
+
+    expect(mockSendDirectMessage).not.toHaveBeenCalled();
+    expect(mockQueueAdd).toHaveBeenCalledWith(
+      "process-message",
+      expect.objectContaining({ scheduledAutomationId: "auto_789" }),
+      expect.objectContaining({ delay: expect.any(Number) })
     );
   });
 });

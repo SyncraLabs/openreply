@@ -35,6 +35,7 @@ import {
 } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
 import { PERMANENT_FAILURE_WHERE } from "@/lib/queue/permanent-errors";
+import { SCHEDULE_GRACE_MS } from "@/lib/queue/send-schedule";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
 
 // Only consider comments from the last few days — older ones are outside
@@ -234,7 +235,15 @@ async function sweepCampaign(
     const consumed = await prisma.dmLog.findMany({
       where: {
         commentId: { in: candidateIds },
-        OR: [{ status: "SENT" }, PERMANENT_FAILURE_WHERE],
+        OR: [
+          { status: "SENT" },
+          PERMANENT_FAILURE_WHERE,
+          // Parked on a send delay; its own job will send it.
+          {
+            status: "PENDING",
+            scheduledAt: { gt: new Date(Date.now() - SCHEDULE_GRACE_MS) },
+          },
+        ],
       },
       select: { commentId: true },
     });

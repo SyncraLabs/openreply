@@ -28,6 +28,19 @@ import {
 
 type TriggerScope = "specific" | "any" | "next";
 type MatchMode = "specific" | "any";
+type DelayMode = "instant" | "fixed" | "random";
+type DelayUnit = "seconds" | "minutes";
+
+const MAX_DELAY_SECONDS = 86400;
+
+function minutesToTime(m: number): string {
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
 
 interface LoadedCampaign {
   id: string;
@@ -50,6 +63,11 @@ interface LoadedCampaign {
   followUpEnabled: boolean;
   followUpMessage: string | null;
   followUpDelayMinutes: number | null;
+  sendDelayMinSeconds: number;
+  sendDelayMaxSeconds: number;
+  sendWindowStart: number | null;
+  sendWindowEnd: number | null;
+  sendWindowTimezone: string;
   publicReplyEnabled: boolean;
   publicReplyMessage: string | null;
   publicReplyMessages: string[];
@@ -183,6 +201,16 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   const [followUpEnabled, setFollowUpEnabled] = useState(false);
   const [followUpMessage, setFollowUpMessage] = useState("");
   const [followUpDelayMinutes, setFollowUpDelayMinutes] = useState(0);
+  const [delayMode, setDelayMode] = useState<DelayMode>("instant");
+  const [delayUnit, setDelayUnit] = useState<DelayUnit>("minutes");
+  const [delayMin, setDelayMin] = useState(2);
+  const [delayMax, setDelayMax] = useState(8);
+  const [windowEnabled, setWindowEnabled] = useState(false);
+  const [windowStart, setWindowStart] = useState("09:00");
+  const [windowEnd, setWindowEnd] = useState("22:00");
+  const [windowTimezone, setWindowTimezone] = useState(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Madrid"
+  );
 
   const [previewTab, setPreviewTab] = useState<PreviewTab>("dm");
 
@@ -291,6 +319,22 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
         setFollowUpEnabled(c.followUpEnabled ?? false);
         setFollowUpMessage(c.followUpMessage ?? "");
         setFollowUpDelayMinutes(c.followUpDelayMinutes ?? 0);
+        const minS = c.sendDelayMinSeconds ?? 0;
+        const maxS = c.sendDelayMaxSeconds ?? 0;
+        const inMinutes = minS % 60 === 0 && maxS % 60 === 0;
+        const unitSize = inMinutes ? 60 : 1;
+        setDelayMode(maxS === 0 ? "instant" : minS === maxS ? "fixed" : "random");
+        if (maxS > 0) {
+          setDelayUnit(inMinutes ? "minutes" : "seconds");
+          setDelayMin(minS / unitSize);
+          setDelayMax(maxS / unitSize);
+        }
+        if (c.sendWindowStart !== null && c.sendWindowEnd !== null) {
+          setWindowEnabled(true);
+          setWindowStart(minutesToTime(c.sendWindowStart));
+          setWindowEnd(minutesToTime(c.sendWindowEnd));
+        }
+        if (c.sendWindowTimezone) setWindowTimezone(c.sendWindowTimezone);
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
@@ -386,6 +430,18 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
     setDmMessage((cur) => (cur.includes("{link}") ? cur : `${cur.trim()} {link}`.trim()));
   }
 
+  const unitSeconds = delayUnit === "minutes" ? 60 : 1;
+  const clampDelay = (v: number) =>
+    Math.max(0, Math.min(MAX_DELAY_SECONDS, Math.round(v * unitSeconds)));
+  const sendDelayMinSeconds =
+    delayMode === "instant" ? 0 : clampDelay(delayMin);
+  const sendDelayMaxSeconds =
+    delayMode === "instant"
+      ? 0
+      : delayMode === "fixed"
+        ? sendDelayMinSeconds
+        : Math.max(sendDelayMinSeconds, clampDelay(delayMax));
+
   async function handleSubmit(activeValue: boolean) {
     setError(null);
 
@@ -430,6 +486,11 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
       followUpEnabled,
       followUpMessage: followUpEnabled ? followUpMessage.trim() : "",
       followUpDelayMinutes: followUpEnabled ? followUpDelayMinutes : 0,
+      sendDelayMinSeconds: sendDelayMinSeconds,
+      sendDelayMaxSeconds: sendDelayMaxSeconds,
+      sendWindowStart: windowEnabled ? timeToMinutes(windowStart) : null,
+      sendWindowEnd: windowEnabled ? timeToMinutes(windowEnd) : null,
+      sendWindowTimezone: windowTimezone,
       isActive: activeValue,
     };
 
@@ -985,6 +1046,103 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                     : "Sent right after they tap through."}
                   {" {username}"} personalizes it. Max 24 hours, to stay inside
                   Instagram&apos;s messaging window.
+                </p>
+              </div>
+            )}
+          </div>
+        </Section>
+
+        <Section title="When to reply">
+          <div className="space-y-2">
+            <Radio
+              checked={delayMode === "instant"}
+              onSelect={() => setDelayMode("instant")}
+            >
+              Right away
+            </Radio>
+            <Radio
+              checked={delayMode === "fixed"}
+              onSelect={() => setDelayMode("fixed")}
+            >
+              After a fixed wait
+            </Radio>
+            <Radio
+              checked={delayMode === "random"}
+              onSelect={() => setDelayMode("random")}
+            >
+              After a random wait
+            </Radio>
+          </div>
+          {delayMode !== "instant" && (
+            <div className="flex flex-wrap items-center gap-2 text-sm text-foreground">
+              <span className="text-xs text-muted">
+                {delayMode === "fixed" ? "Wait" : "Wait between"}
+              </span>
+              <input
+                type="number"
+                min={0}
+                value={delayMin}
+                onChange={(e) => setDelayMin(Math.max(0, Number(e.target.value) || 0))}
+                className="w-20 rounded-lg border border-border bg-surface px-2 py-1 text-sm text-foreground focus:border-accent/40 focus:outline-none"
+              />
+              {delayMode === "random" && (
+                <>
+                  <span className="text-xs text-muted">and</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={delayMax}
+                    onChange={(e) => setDelayMax(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-20 rounded-lg border border-border bg-surface px-2 py-1 text-sm text-foreground focus:border-accent/40 focus:outline-none"
+                  />
+                </>
+              )}
+              <select
+                value={delayUnit}
+                onChange={(e) => setDelayUnit(e.target.value as DelayUnit)}
+                className="rounded-lg border border-border bg-surface px-2 py-1 text-sm text-foreground focus:border-accent/40 focus:outline-none"
+              >
+                <option value="seconds">seconds</option>
+                <option value="minutes">minutes</option>
+              </select>
+            </div>
+          )}
+          <p className="text-xs text-muted">
+            {delayMode === "instant"
+              ? "The comment reply and the DM go out as soon as the comment arrives."
+              : "The comment reply and the DM wait together. Button taps still answer right away. Max 24 hours."}
+          </p>
+          <div className="rounded-lg border border-border p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-foreground">
+                only reply during these hours
+              </span>
+              <Toggle
+                on={windowEnabled}
+                onToggle={() => setWindowEnabled(!windowEnabled)}
+              />
+            </div>
+            {windowEnabled && (
+              <div className="mt-3 space-y-2">
+                <div className="flex flex-wrap items-center gap-2 text-sm text-foreground">
+                  <span className="text-xs text-muted">From</span>
+                  <input
+                    type="time"
+                    value={windowStart}
+                    onChange={(e) => setWindowStart(e.target.value)}
+                    className="rounded-lg border border-border bg-surface px-2 py-1 text-sm text-foreground focus:border-accent/40 focus:outline-none"
+                  />
+                  <span className="text-xs text-muted">to</span>
+                  <input
+                    type="time"
+                    value={windowEnd}
+                    onChange={(e) => setWindowEnd(e.target.value)}
+                    className="rounded-lg border border-border bg-surface px-2 py-1 text-sm text-foreground focus:border-accent/40 focus:outline-none"
+                  />
+                </div>
+                <p className="text-xs text-muted">
+                  Time zone: {windowTimezone}. Comments outside these hours are
+                  answered in the first 15 minutes after it opens.
                 </p>
               </div>
             )}

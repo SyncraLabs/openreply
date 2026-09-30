@@ -15,6 +15,24 @@ import {
 // immediately), so never cache it at the route or CDN layer.
 export const dynamic = "force-dynamic";
 
+// Send delay (seconds, max 24h) and optional daily window (minutes from
+// midnight). Kept under 24h + one window so a comment's private reply stays well
+// inside Instagram's 7-day limit.
+const sendTimingFields = {
+  sendDelayMinSeconds: z.number().int().min(0).max(86400),
+  sendDelayMaxSeconds: z.number().int().min(0).max(86400),
+  sendWindowStart: z.number().int().min(0).max(1439).nullable(),
+  sendWindowEnd: z.number().int().min(0).max(1439).nullable(),
+  sendWindowTimezone: z.string().max(64).refine((tz) => {
+    try {
+      new Intl.DateTimeFormat("en", { timeZone: tz });
+      return true;
+    } catch {
+      return false;
+    }
+  }, "Unknown time zone"),
+};
+
 const createAutomationSchema = z
   .object({
     name: z.string().min(1).max(100),
@@ -60,6 +78,11 @@ const createAutomationSchema = z
     secondaryButtonLabel: z.string().max(20).optional().nullable(),
     isActive: z.boolean().optional().default(true),
     wholeWordMatch: z.boolean().optional().default(true),
+    sendDelayMinSeconds: sendTimingFields.sendDelayMinSeconds.optional().default(0),
+    sendDelayMaxSeconds: sendTimingFields.sendDelayMaxSeconds.optional().default(0),
+    sendWindowStart: sendTimingFields.sendWindowStart.optional().default(null),
+    sendWindowEnd: sendTimingFields.sendWindowEnd.optional().default(null),
+    sendWindowTimezone: sendTimingFields.sendWindowTimezone.optional(),
   })
   // A campaign must target a specific post, any post, or the next reel.
   .refine(
@@ -107,6 +130,11 @@ const updateAutomationSchema = z.object({
   isActive: z.boolean().optional(),
   wholeWordMatch: z.boolean().optional(),
   reportShareEnabled: z.boolean().optional(),
+  sendDelayMinSeconds: sendTimingFields.sendDelayMinSeconds.optional(),
+  sendDelayMaxSeconds: sendTimingFields.sendDelayMaxSeconds.optional(),
+  sendWindowStart: sendTimingFields.sendWindowStart.optional(),
+  sendWindowEnd: sendTimingFields.sendWindowEnd.optional(),
+  sendWindowTimezone: sendTimingFields.sendWindowTimezone.optional(),
   // Empty string clears the tracked link; a URL updates/creates it; undefined
   // leaves it unchanged.
   trackedDestinationUrl: z
@@ -120,6 +148,13 @@ const updateAutomationSchema = z.object({
     .nullable(),
   secondaryButtonLabel: z.string().max(20).optional().nullable(),
 });
+
+// A window needs both ends, and different ones; anything else means "any time".
+function windowFields(start: number | null, end: number | null) {
+  return start === null || end === null || start === end
+    ? { sendWindowStart: null, sendWindowEnd: null }
+    : { sendWindowStart: start, sendWindowEnd: end };
+}
 
 export async function GET(request: NextRequest) {
   const workspaceId = await getCurrentWorkspaceId();
@@ -427,6 +462,15 @@ export async function POST(request: NextRequest) {
         : null,
       isActive: parsed.data.isActive,
       wholeWordMatch: parsed.data.wholeWordMatch,
+      sendDelayMinSeconds: parsed.data.sendDelayMinSeconds,
+      sendDelayMaxSeconds: Math.max(
+        parsed.data.sendDelayMinSeconds,
+        parsed.data.sendDelayMaxSeconds
+      ),
+      ...windowFields(parsed.data.sendWindowStart, parsed.data.sendWindowEnd),
+      ...(parsed.data.sendWindowTimezone
+        ? { sendWindowTimezone: parsed.data.sendWindowTimezone }
+        : {}),
       workspaceId,
       instagramAccountId: instagramAccount.id,
       reportShareSlug: generateReportShareSlug(),
@@ -517,6 +561,34 @@ export async function PATCH(request: NextRequest) {
   if (automationData.followUpEnabled === false) {
     automationData.followUpMessage = null;
     automationData.followUpDelayMinutes = 0;
+  }
+  // Max below min would make the random range meaningless; treat it as fixed.
+  const minDelay =
+    automationData.sendDelayMinSeconds ?? existing.sendDelayMinSeconds;
+  if (
+    automationData.sendDelayMinSeconds !== undefined ||
+    automationData.sendDelayMaxSeconds !== undefined
+  ) {
+    automationData.sendDelayMaxSeconds = Math.max(
+      minDelay,
+      automationData.sendDelayMaxSeconds ?? existing.sendDelayMaxSeconds
+    );
+  }
+  if (
+    automationData.sendWindowStart !== undefined ||
+    automationData.sendWindowEnd !== undefined
+  ) {
+    Object.assign(
+      automationData,
+      windowFields(
+        automationData.sendWindowStart === undefined
+          ? existing.sendWindowStart
+          : automationData.sendWindowStart,
+        automationData.sendWindowEnd === undefined
+          ? existing.sendWindowEnd
+          : automationData.sendWindowEnd
+      )
+    );
   }
   // Any-post / next-reel campaigns carry no specific post.
   if (automationData.matchAnyPost === true || automationData.pendingNextReel === true) {
