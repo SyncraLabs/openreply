@@ -19,6 +19,10 @@ import { useT } from "@/components/lang-provider";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import PostPicker from "@/components/post-picker";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
+import SequenceEditor from "@/components/sequence-editor";
+import type { Sequence } from "@/lib/sequence";
+
+const EMPTY_SEQUENCE: Sequence = { main: [], branches: [] };
 import { readCache, writeCache } from "@/lib/client-cache";
 import {
   IMPORT_QUEUE_KEY,
@@ -68,6 +72,7 @@ interface LoadedCampaign {
   sendWindowStart: number | null;
   sendWindowEnd: number | null;
   sendWindowTimezone: string;
+  sequence: Sequence | null;
   publicReplyEnabled: boolean;
   publicReplyMessage: string | null;
   publicReplyMessages: string[];
@@ -208,6 +213,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   const [windowEnabled, setWindowEnabled] = useState(false);
   const [windowStart, setWindowStart] = useState("09:00");
   const [windowEnd, setWindowEnd] = useState("22:00");
+  const [sequence, setSequence] = useState<Sequence>(EMPTY_SEQUENCE);
   const [windowTimezone, setWindowTimezone] = useState(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Madrid"
   );
@@ -335,6 +341,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
           setWindowEnd(minutesToTime(c.sendWindowEnd));
         }
         if (c.sendWindowTimezone) setWindowTimezone(c.sendWindowTimezone);
+        setSequence(c.sequence ?? EMPTY_SEQUENCE);
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
@@ -491,6 +498,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
       sendWindowStart: windowEnabled ? timeToMinutes(windowStart) : null,
       sendWindowEnd: windowEnabled ? timeToMinutes(windowEnd) : null,
       sendWindowTimezone: windowTimezone,
+      sequence,
       isActive: activeValue,
     };
 
@@ -1050,6 +1058,24 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
               </div>
             )}
           </div>
+        </Section>
+
+        <Section title="Then send these messages">
+          <p className="text-xs text-muted">
+            Text, images, audio, video or PDFs, each with its own wait. They go
+            out after the link, once the person has tapped a button or DMed
+            you: Instagram allows nothing more after a plain comment reply.
+            All waits must fit in 24 hours.
+          </p>
+          {!openingDmEnabled &&
+            !dmTriggerEnabled &&
+            sequence.main.length + sequence.branches.length > 0 && (
+            <p className="rounded border border-error/20 bg-error/10 p-2 text-xs text-error">
+              Turn on the opening DM or the DM trigger, or these messages
+              will never go out.
+            </p>
+          )}
+          <SequenceEditor value={sequence} onChange={setSequence} />
         </Section>
 
         <Section title="When to reply">

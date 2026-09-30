@@ -5,7 +5,9 @@ import {
   MESSAGE_JOB_NAME,
   POSTBACK_JOB_NAME,
   FOLLOWUP_JOB_NAME,
+  STEP_JOB_NAME,
   type DmQueueJob,
+  type ProcessStepJob,
   type ProcessCommentJob,
   type ProcessMessageJob,
   type ProcessPostbackJob,
@@ -19,7 +21,9 @@ import {
   getUserFollowStatus,
   sendCommentReply,
   sendDirectMessage,
+  sendDirectMessageAttachment,
   sendDirectMessageWithButton,
+  sendDirectMessageWithButtons,
   sendDirectMessageWithLinkButton,
   sendPrivateReply,
   sendPrivateReplyWithButton,
@@ -34,6 +38,13 @@ import {
 } from "@/lib/billing/usage";
 import { recordWorkerAlert } from "@/lib/ops/worker-health";
 import { computeSendAt, SCHEDULE_GRACE_MS } from "./send-schedule";
+import {
+  MAIN_BRANCH,
+  branchPayload,
+  getBranchSteps,
+  parseBranchPayload,
+  parseSequence,
+} from "@/lib/sequence";
 import {
   buildTrackedUrl,
   renderMessageWithTracking,
@@ -798,6 +809,23 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
     return;
   }
 
+  const branch = parseBranchPayload(payload);
+  if (branch) {
+    const target = await prisma.automation.findFirst({
+      where: { id: branch.automationId, isActive: true },
+      include: { instagramAccount: true },
+    });
+    if (!target || target.instagramAccount.instagramId !== instagramAccountId) {
+      return;
+    }
+    const nameLog = await prisma.dmLog.findFirst({
+      where: { automationId: target.id, commenterId: userId },
+      select: { commenterName: true },
+    });
+    await startSequence(target, userId, nameLog?.commenterName ?? null, branch.branchId);
+    return;
+  }
+
   const isFollowCheck = payload.startsWith("followcheck:");
   if (!isFollowCheck && !payload.startsWith("reveal:")) return;
   const automationId = payload.slice(
@@ -919,6 +947,7 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
       commenterName,
       "postback"
     );
+    await startSequence(automation, userId, commenterName);
     // Optional appreciation follow-up: once the link has been delivered, send a
     // short thank-you. It is scheduled as its own delayed job so it can go out
     // some minutes later (followUpDelayMinutes) rather than immediately. The
@@ -993,6 +1022,130 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
       update: { status: "FAILED", errorMessage: formatError(error) },
     });
     throw error;
+  }
+}
+
+/**
+ * Queue the first message of a sequence branch for this user. The main
+ * sequence uses a fixed run id, so tapping through to the link again doesn't
+ * start it twice; each branch tap is its own run.
+ */
+async function startSequence(
+  automation: { id: string; sequence: unknown; instagramAccount: { instagramId: string } },
+  userId: string,
+  commenterName: string | null,
+  branchId: string = MAIN_BRANCH
+): Promise<void> {
+  const steps = getBranchSteps(parseSequence(automation.sequence), branchId);
+  if (steps.length === 0) return;
+  // Called right after the link went out: a queue error here must not mark
+  // that delivered link as failed (and re-send it on retry).
+  try {
+    await enqueueStep(
+      {
+        instagramAccountId: automation.instagramAccount.instagramId,
+        userId,
+        automationId: automation.id,
+        branchId,
+        index: 0,
+        runId: branchId === MAIN_BRANCH ? "1" : Date.now().toString(36),
+        commenterName,
+      },
+      steps[0].delaySeconds
+    );
+  } catch (error) {
+    console.error("[DM Worker] Could not start sequence:", formatError(error));
+  }
+}
+
+async function enqueueStep(data: ProcessStepJob, delaySeconds: number) {
+  await getDMQueue().add(STEP_JOB_NAME, data, {
+    delay: delaySeconds * 1000,
+    jobId: `step_${data.automationId}_${data.userId}_${data.branchId}_${data.runId}_${data.index}`,
+  });
+}
+
+/**
+ * Send one sequence message, then queue the next. Best-effort like the
+ * follow-up: a send Instagram refuses (usually a closed 24-hour window) is
+ * logged and ends the sequence for this user instead of retrying.
+ */
+async function processStep(job: Job<ProcessStepJob>): Promise<void> {
+  const { instagramAccountId, userId, automationId, branchId, index } = job.data;
+  const commenterName = job.data.commenterName ?? null;
+
+  const automation = await prisma.automation.findFirst({
+    where: { id: automationId, isActive: true },
+    include: { instagramAccount: true },
+  });
+  if (
+    !automation ||
+    automation.instagramAccount.instagramId !== instagramAccountId ||
+    !automation.instagramAccount.accessToken
+  ) {
+    return;
+  }
+
+  // Read the sequence as it is now, so edits apply to people mid-way.
+  const steps = getBranchSteps(parseSequence(automation.sequence), branchId);
+  const step = steps[index];
+  if (!step) return;
+
+  let accessToken: string;
+  try {
+    accessToken = decryptToken(automation.instagramAccount.accessToken);
+  } catch {
+    return;
+  }
+
+  try {
+    if (step.type !== "text") {
+      await sendDirectMessageAttachment(
+        accessToken,
+        instagramAccountId,
+        userId,
+        step.type,
+        step.mediaUrl as string
+      );
+    } else {
+      const text = renderMessageWithoutLink({ message: step.text, commenterName });
+      if (step.buttons.length === 0) {
+        await sendDirectMessage(accessToken, instagramAccountId, userId, text);
+      } else {
+        await sendDirectMessageWithButtons(
+          accessToken,
+          instagramAccountId,
+          userId,
+          text,
+          step.buttons.map((b) =>
+            "url" in b
+              ? { type: "web_url" as const, title: b.label, url: b.url }
+              : {
+                  type: "postback" as const,
+                  title: b.label,
+                  payload: branchPayload(automation.id, b.branchId),
+                }
+          )
+        );
+      }
+    }
+  } catch (error) {
+    console.log(
+      `[DM Worker] Sequence message ${branchId}#${index + 1} not delivered:`,
+      formatError(error)
+    );
+    return;
+  }
+
+  // This message already went out; a throw here would retry the job and send
+  // it twice.
+  const next = steps[index + 1];
+  if (next) {
+    try {
+      await enqueueStep({ ...job.data, index: index + 1 }, next.delaySeconds);
+    } catch (error) {
+      console.error("[DM Worker] Could not queue next sequence message:", formatError(error));
+    }
   }
 }
 
@@ -1255,6 +1408,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
           commenterName,
           "message trigger"
         );
+        await startSequence(automation, senderId, commenterName);
 
         // The link has been delivered, so the appreciation follow-up applies
         // here exactly as it does after a button tap. Not scheduled behind the
@@ -1334,6 +1488,9 @@ async function processJob(job: Job<DmQueueJob>): Promise<void> {
   }
   if (job.name === MESSAGE_JOB_NAME) {
     return processMessage(job as Job<ProcessMessageJob>);
+  }
+  if (job.name === STEP_JOB_NAME) {
+    return processStep(job as Job<ProcessStepJob>);
   }
   return processComment(job as Job<ProcessCommentJob>);
 }

@@ -396,6 +396,80 @@ export async function sendDirectMessageWithLinkButton(
   return handleResponse(response);
 }
 
+export type TemplateButton =
+  | { type: "web_url"; title: string; url: string }
+  | { type: "postback"; title: string; payload: string };
+
+/**
+ * Send a direct message as a button template mixing link buttons and postback
+ * buttons (up to 3). Used by campaign sequences, where a button either opens a
+ * URL or jumps to a branch.
+ */
+export async function sendDirectMessageWithButtons(
+  accessToken: string,
+  instagramAccountId: string,
+  userId: string,
+  text: string,
+  buttons: TemplateButton[]
+): Promise<{ recipient_id: string; message_id: string }> {
+  const response = await fetch(
+    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        recipient: { id: userId },
+        message: {
+          attachment: {
+            type: "template",
+            payload: {
+              template_type: "button",
+              text: text.slice(0, 640),
+              buttons: buttons
+                .slice(0, 3)
+                .map((b) => ({ ...b, title: b.title.slice(0, 20) })),
+            },
+          },
+        },
+      }),
+    }
+  );
+
+  return handleResponse(response);
+}
+
+/**
+ * Send an image, audio clip, video or PDF by URL. Instagram fetches the file
+ * itself, so the URL must be public.
+ */
+export async function sendDirectMessageAttachment(
+  accessToken: string,
+  instagramAccountId: string,
+  userId: string,
+  type: "image" | "audio" | "video" | "file",
+  url: string
+): Promise<{ recipient_id: string; message_id: string }> {
+  const response = await fetch(
+    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        recipient: { id: userId },
+        message: { attachment: { type, payload: { url } } },
+      }),
+    }
+  );
+
+  return handleResponse(response);
+}
+
 export async function sendCommentReply(
   accessToken: string,
   commentId: string,

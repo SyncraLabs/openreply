@@ -15,6 +15,8 @@ const {
   mockQueueAdd,
   mockReserveWorkspaceDMSend,
   mockReleaseWorkspaceDMReservation,
+  mockSendDirectMessageAttachment,
+  mockSendDirectMessageWithButtons,
 } = vi.hoisted(() => ({
   mockPrisma: {
     automation: {
@@ -48,6 +50,8 @@ const {
   mockQueueAdd: vi.fn(),
   mockReserveWorkspaceDMSend: vi.fn(),
   mockReleaseWorkspaceDMReservation: vi.fn(),
+  mockSendDirectMessageAttachment: vi.fn(),
+  mockSendDirectMessageWithButtons: vi.fn(),
 }));
 
 vi.mock("@/lib/db/client", () => ({
@@ -62,6 +66,8 @@ vi.mock("@/lib/meta/client", () => ({
   sendDirectMessageWithButton: mockSendDirectMessageWithButton,
   sendDirectMessage: mockSendDirectMessage,
   sendDirectMessageWithLinkButton: mockSendDirectMessageWithLinkButton,
+  sendDirectMessageAttachment: mockSendDirectMessageAttachment,
+  sendDirectMessageWithButtons: mockSendDirectMessageWithButtons,
   sendCommentReply: vi.fn(),
   MetaApiError: class MetaApiError extends Error {
     code: number;
@@ -113,6 +119,7 @@ vi.mock("@/lib/queue/client", () => ({
   POSTBACK_JOB_NAME: "process-postback",
   FOLLOWUP_JOB_NAME: "process-followup",
   MESSAGE_JOB_NAME: "process-message",
+  STEP_JOB_NAME: "process-step",
 }));
 
 vi.mock("bullmq", () => {
@@ -1186,5 +1193,152 @@ describe("DM Worker — send delay", () => {
       expect.objectContaining({ scheduledAutomationId: "auto_789" }),
       expect.objectContaining({ delay: expect.any(Number) })
     );
+  });
+});
+
+describe("DM Worker — sequences and branches", () => {
+  const sequence = {
+    main: [
+      { id: "s1", type: "text", text: "Hi {username}", mediaUrl: null, delaySeconds: 30, buttons: [
+        { label: "Prices", branchId: "prices" },
+        { label: "Web", url: "https://example.com" },
+      ] },
+      { id: "s2", type: "audio", text: "", mediaUrl: "https://cdn.test/a.m4a", delaySeconds: 600, buttons: [] },
+    ],
+    branches: [
+      { id: "prices", name: "Prices", steps: [
+        { id: "p1", type: "image", text: "", mediaUrl: "https://cdn.test/p.png", delaySeconds: 0, buttons: [] },
+      ] },
+    ],
+  };
+  const seqAutomation = { ...mockAutomation, sequence, requireFollow: false };
+
+  function stepJob(data: Record<string, unknown>) {
+    return {
+      name: "process-step",
+      data: {
+        instagramAccountId: "ig_456",
+        userId: "commenter_999",
+        automationId: "auto_789",
+        runId: "1",
+        commenterName: "commenter_user",
+        ...data,
+      },
+      id: "step_job",
+      attemptsMade: 0,
+    };
+  }
+
+  beforeEach(() => {
+    mockPrisma.automation.findFirst.mockResolvedValue(seqAutomation);
+    mockSendDirectMessageWithButtons.mockResolvedValue({});
+    mockSendDirectMessageAttachment.mockResolvedValue({});
+  });
+
+  it("should start the main sequence after the link goes out on a button tap", async () => {
+    const processor = getProcessor();
+    await processor(createMockPostbackJob());
+
+    expect(mockSendDirectMessage).toHaveBeenCalled();
+    expect(mockQueueAdd).toHaveBeenCalledWith(
+      "process-step",
+      expect.objectContaining({ branchId: "main", index: 0, runId: "1" }),
+      { delay: 30_000, jobId: "step_auto_789_commenter_999_main_1_0" }
+    );
+  });
+
+  it("should send a text step with link and branch buttons, then queue the next", async () => {
+    const processor = getProcessor();
+    await processor(stepJob({ branchId: "main", index: 0 }));
+
+    expect(mockSendDirectMessageWithButtons).toHaveBeenCalledWith(
+      "decrypted_token",
+      "ig_456",
+      "commenter_999",
+      "Hi commenter_user",
+      [
+        { type: "postback", title: "Prices", payload: "branch:auto_789:prices" },
+        { type: "web_url", title: "Web", url: "https://example.com" },
+      ]
+    );
+    expect(mockQueueAdd).toHaveBeenCalledWith(
+      "process-step",
+      expect.objectContaining({ branchId: "main", index: 1 }),
+      { delay: 600_000, jobId: "step_auto_789_commenter_999_main_1_1" }
+    );
+  });
+
+  it("should send an attachment step and stop at the end", async () => {
+    const processor = getProcessor();
+    await processor(stepJob({ branchId: "main", index: 1 }));
+
+    expect(mockSendDirectMessageAttachment).toHaveBeenCalledWith(
+      "decrypted_token", "ig_456", "commenter_999", "audio", "https://cdn.test/a.m4a"
+    );
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("should stop the sequence when Instagram refuses a message", async () => {
+    mockSendDirectMessageWithButtons.mockRejectedValue(new Error("outside of allowed window"));
+    const processor = getProcessor();
+    await expect(processor(stepJob({ branchId: "main", index: 0 }))).resolves.toBeUndefined();
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("should do nothing when the campaign was paused", async () => {
+    mockPrisma.automation.findFirst.mockResolvedValue(null);
+    const processor = getProcessor();
+    await processor(stepJob({ branchId: "main", index: 0 }));
+    expect(mockSendDirectMessageWithButtons).not.toHaveBeenCalled();
+  });
+
+  it("should start a branch when its button is tapped", async () => {
+    const processor = getProcessor();
+    await processor(createMockPostbackJob({
+      instagramAccountId: "ig_456",
+      userId: "commenter_999",
+      payload: "branch:auto_789:prices",
+    }));
+
+    expect(mockSendDirectMessage).not.toHaveBeenCalled();
+    const [name, data, opts] = mockQueueAdd.mock.calls[0];
+    expect(name).toBe("process-step");
+    expect(data).toMatchObject({ branchId: "prices", index: 0 });
+    expect(data.runId).not.toBe("1");
+    expect(opts.delay).toBe(0);
+  });
+
+  it("should ignore a branch button from another account", async () => {
+    const processor = getProcessor();
+    await processor(createMockPostbackJob({
+      instagramAccountId: "someone_else",
+      userId: "commenter_999",
+      payload: "branch:auto_789:prices",
+    }));
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("should start the sequence after a DM keyword trigger", async () => {
+    mockPrisma.automation.findMany.mockResolvedValue([{ ...seqAutomation, dmTriggerEnabled: true }]);
+    const processor = getProcessor();
+    await processor({
+      name: "process-message",
+      data: { instagramAccountId: "ig_456", messageId: "mid_x", messageText: "LINK", senderId: "commenter_999" },
+      id: "m",
+      attemptsMade: 0,
+    });
+    expect(mockQueueAdd).toHaveBeenCalledWith(
+      "process-step",
+      expect.objectContaining({ branchId: "main", index: 0 }),
+      expect.anything()
+    );
+  });
+
+  it("should not start a sequence from a comment's private reply", async () => {
+    mockPrisma.automation.findMany.mockResolvedValue([seqAutomation]);
+    const processor = getProcessor();
+    await processor(createMockJob());
+    expect(mockSendPrivateReply).toHaveBeenCalled();
+    expect(mockQueueAdd).not.toHaveBeenCalled();
   });
 });

@@ -68,15 +68,31 @@ export interface ProcessMessageJob {
   scheduledAutomationId?: string;
 }
 
+// One message of a campaign sequence (lib/sequence.ts). Each step schedules
+// the next one with that step's wait.
+export interface ProcessStepJob {
+  instagramAccountId: string;
+  userId: string;
+  automationId: string;
+  branchId: string;
+  index: number;
+  // Tells runs of the same branch apart in job ids: the main sequence has one
+  // run per user, each branch button tap starts a new one.
+  runId: string;
+  commenterName?: string | null;
+}
+
 export type DmQueueJob =
   | ProcessCommentJob
   | ProcessPostbackJob
   | ProcessFollowUpJob
-  | ProcessMessageJob;
+  | ProcessMessageJob
+  | ProcessStepJob;
 
 export const POSTBACK_JOB_NAME = "process-postback";
 export const FOLLOWUP_JOB_NAME = "process-followup";
 export const MESSAGE_JOB_NAME = "process-message";
+export const STEP_JOB_NAME = "process-step";
 
 let dmQueue: Queue<DmQueueJob> | null = null;
 

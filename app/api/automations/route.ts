@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@/app/generated/prisma/client";
+import { isEmptySequence, sequenceSchema, type Sequence } from "@/lib/sequence";
 import { getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
 import { calculateCtr, normalizeTopKeywords } from "@/lib/tracking/analytics";
@@ -83,6 +85,7 @@ const createAutomationSchema = z
     sendWindowStart: sendTimingFields.sendWindowStart.optional().default(null),
     sendWindowEnd: sendTimingFields.sendWindowEnd.optional().default(null),
     sendWindowTimezone: sendTimingFields.sendWindowTimezone.optional(),
+    sequence: sequenceSchema.optional().nullable(),
   })
   // A campaign must target a specific post, any post, or the next reel.
   .refine(
@@ -135,6 +138,7 @@ const updateAutomationSchema = z.object({
   sendWindowStart: sendTimingFields.sendWindowStart.optional(),
   sendWindowEnd: sendTimingFields.sendWindowEnd.optional(),
   sendWindowTimezone: sendTimingFields.sendWindowTimezone.optional(),
+  sequence: sequenceSchema.optional().nullable(),
   // Empty string clears the tracked link; a URL updates/creates it; undefined
   // leaves it unchanged.
   trackedDestinationUrl: z
@@ -148,6 +152,13 @@ const updateAutomationSchema = z.object({
     .nullable(),
   secondaryButtonLabel: z.string().max(20).optional().nullable(),
 });
+
+// An empty sequence is stored as SQL NULL, like a campaign that never had one.
+function sequenceColumn(seq: Sequence | null | undefined) {
+  return !seq || isEmptySequence(seq)
+    ? Prisma.DbNull
+    : (seq as Prisma.InputJsonValue);
+}
 
 // A window needs both ends, and different ones; anything else means "any time".
 function windowFields(start: number | null, end: number | null) {
@@ -471,6 +482,7 @@ export async function POST(request: NextRequest) {
       ...(parsed.data.sendWindowTimezone
         ? { sendWindowTimezone: parsed.data.sendWindowTimezone }
         : {}),
+      sequence: sequenceColumn(parsed.data.sequence),
       workspaceId,
       instagramAccountId: instagramAccount.id,
       reportShareSlug: generateReportShareSlug(),
@@ -608,9 +620,13 @@ export async function PATCH(request: NextRequest) {
     automationData.publicReplyMessage = null;
   }
 
+  const { sequence, ...scalarData } = automationData;
   const updated = await prisma.automation.update({
     where: { id: automationId },
-    data: automationData,
+    data: {
+      ...scalarData,
+      ...(sequence !== undefined ? { sequence: sequenceColumn(sequence) } : {}),
+    },
   });
 
   // Update, create, or clear the campaign's primary tracked link when a
