@@ -11,10 +11,11 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "worker": "tsx worker/dm-worker.ts",
+    "worker:build": "esbuild worker/dm-worker.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/worker.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "railway:build": "if [ \"$SERVICE_ROLE\" = \"web\" ]; then npm run build; else npm run db:generate; fi",
-    "railway:start": "if [ \"$SERVICE_ROLE\" = \"web\" ]; then npm start; else npm run worker; fi"
+    "railway:build": "if [ \"$SERVICE_ROLE\" = \"web\" ]; then npm run build; else npm run db:generate && npm run worker:build; fi",
+    "railway:start": "if [ \"$SERVICE_ROLE\" = \"web\" ]; then npm start; else node --max-old-space-size=256 dist/worker.mjs; fi"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.2",
@@ -39,6 +40,7 @@
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
+    "esbuild": "^0.28.0",
     "eslint-config-next": "^16.2.6",
     "prisma": "^7.8.0",
     "tailwindcss": "^4",

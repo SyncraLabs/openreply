@@ -53,3 +53,6 @@ SETUP-RODRI.md
 # dentro el token de Instagram cifrado y las sesiones de usuario.
 tools/*.json
 tools/*.txt
+
+# Worker bundle (npm run worker:build)
+/dist
