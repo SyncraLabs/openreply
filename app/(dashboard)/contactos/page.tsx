@@ -29,13 +29,21 @@ interface Contacto {
   primero: Date;
   ultimo: Date;
   ultimoComentario: string;
+  // Última respuesta al triaje (botón de rama de una secuencia), si la hay.
+  triaje: { respuesta: string; cualificado: boolean } | null;
 }
 
-export default async function ContactosPage() {
-  const [workspaceId, cookieStore] = await Promise.all([
+export default async function ContactosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const [workspaceId, cookieStore, params] = await Promise.all([
     getCurrentWorkspaceId(),
     cookies(),
+    searchParams,
   ]);
+  const soloCualificados = params.filtro === "cualificados";
   const lang = normalizeLang(cookieStore.get(LANG_COOKIE)?.value);
   const t = translator(lang);
   const dateFmt = new Intl.DateTimeFormat(lang === "en" ? "en-GB" : "es-ES", {
@@ -68,6 +76,19 @@ export default async function ContactosPage() {
     },
   });
 
+  // La respuesta más reciente de cada persona, en cualquier campaña.
+  const respuestas = await prisma.sequenceChoice.findMany({
+    where: { workspaceId },
+    orderBy: { updatedAt: "desc" },
+    select: { userId: true, branchName: true, qualified: true },
+  });
+  const triajePorPersona = new Map<string, Contacto["triaje"]>();
+  for (const r of respuestas) {
+    if (!triajePorPersona.has(r.userId)) {
+      triajePorPersona.set(r.userId, { respuesta: r.branchName, cualificado: r.qualified });
+    }
+  }
+
   const porPersona = new Map<string, Contacto>();
   for (const log of logs) {
     const previo = porPersona.get(log.commenterId);
@@ -91,13 +112,18 @@ export default async function ContactosPage() {
       // logs viene ordenado desc, así que el primero que vemos es el más reciente.
       ultimo: log.createdAt,
       ultimoComentario: log.commentText,
+      triaje: triajePorPersona.get(log.commenterId) ?? null,
     });
   }
 
-  const contactos = [...porPersona.values()].sort(
+  const todos = [...porPersona.values()].sort(
     (a, b) => b.ultimo.getTime() - a.ultimo.getTime()
   );
-  const recurrentes = contactos.filter((c) => c.dms > 1).length;
+  const cualificados = todos.filter((c) => c.triaje?.cualificado).length;
+  const contactos = soloCualificados
+    ? todos.filter((c) => c.triaje?.cualificado)
+    : todos;
+  const recurrentes = todos.filter((c) => c.dms > 1).length;
 
   return (
     <div className="space-y-6">
@@ -109,7 +135,7 @@ export default async function ContactosPage() {
       </header>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Metrica etiqueta={t("contacts.people")} valor={contactos.length} />
+        <Metrica etiqueta={t("contacts.people")} valor={todos.length} />
         <Metrica
           etiqueta={t("contacts.repeat")}
           valor={recurrentes}
@@ -117,15 +143,34 @@ export default async function ContactosPage() {
         />
         <Metrica
           etiqueta={t("contacts.delivered")}
-          valor={contactos.reduce((n, c) => n + c.enviados, 0)}
+          valor={todos.reduce((n, c) => n + c.enviados, 0)}
         />
-        <Metrica etiqueta={t("contacts.interactions")} valor={logs.length} />
+        <Metrica
+          etiqueta={t("contacts.qualified")}
+          valor={cualificados}
+          pie={t("contacts.qualifiedFoot")}
+        />
+      </div>
+
+      <div className="flex gap-2 text-sm">
+        <a
+          href="/contactos"
+          className={`rounded-full border px-3 py-1 ${soloCualificados ? "border-border text-muted hover:text-foreground" : "border-accent text-accent"}`}
+        >
+          {t("contacts.filterAll")}
+        </a>
+        <a
+          href="/contactos?filtro=cualificados"
+          className={`rounded-full border px-3 py-1 ${soloCualificados ? "border-accent text-accent" : "border-border text-muted hover:text-foreground"}`}
+        >
+          {t("contacts.filterQualified")} ({cualificados})
+        </a>
       </div>
 
       {contactos.length === 0 ? (
         <div className="panel p-8 text-center">
           <p className="text-sm text-muted">
-            {t("contacts.empty")}
+            {soloCualificados ? t("contacts.emptyQualified") : t("contacts.empty")}
           </p>
         </div>
       ) : (
@@ -135,6 +180,7 @@ export default async function ContactosPage() {
               <tr>
                 <th className="px-4 py-3 font-medium">{t("contacts.account")}</th>
                 <th className="px-4 py-3 font-medium">{t("contacts.dms")}</th>
+                <th className="px-4 py-3 font-medium">{t("contacts.triage")}</th>
                 <th className="px-4 py-3 font-medium">{t("contacts.campaigns")}</th>
                 <th className="px-4 py-3 font-medium">{t("contacts.lastComment")}</th>
                 <th className="px-4 py-3 font-medium whitespace-nowrap">{t("contacts.lastSeen")}</th>
@@ -174,6 +220,17 @@ export default async function ContactosPage() {
                       <span className="ml-2 rounded-full bg-surface-hover px-2 py-0.5 text-xs text-muted">
                         {t("contacts.recurring")}
                       </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {c.triaje ? (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs ${c.triaje.cualificado ? "bg-accent/10 text-accent" : "bg-surface-hover text-muted"}`}
+                      >
+                        {c.triaje.respuesta}
+                      </span>
+                    ) : (
+                      <span className="text-muted">·</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-muted">

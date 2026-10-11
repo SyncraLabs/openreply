@@ -435,6 +435,20 @@ export default function SequenceEditor({
                 Delete
               </button>
             </div>
+            <label className="flex items-center gap-2 text-xs text-muted">
+              <input
+                type="checkbox"
+                checked={Boolean(branch.qualified)}
+                onChange={(e) =>
+                  setBranches(
+                    value.branches.map((b) =>
+                      b.id === branch.id ? { ...b, qualified: e.target.checked } : b
+                    )
+                  )
+                }
+              />
+              Mark whoever taps into this branch as qualified in Contacts
+            </label>
             <StepList
               steps={branch.steps}
               branches={value.branches}
@@ -453,7 +467,7 @@ export default function SequenceEditor({
             onClick={() =>
               setBranches([
                 ...value.branches,
-                { id: newId(), name: "", steps: [{ ...newStep(), delaySeconds: 0 }] },
+                { id: newId(), name: "", qualified: false, steps: [{ ...newStep(), delaySeconds: 0 }] },
               ])
             }
             className="w-full rounded-lg border border-dashed border-border py-2 text-sm text-muted hover:text-foreground"

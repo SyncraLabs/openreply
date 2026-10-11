@@ -20,6 +20,16 @@ describe("sequenceSchema", () => {
     expect(r.success).toBe(true);
   });
 
+  it("treats branches as not qualified unless marked", () => {
+    const r = sequenceSchema.parse({
+      branches: [
+        { id: "a", name: "A", steps: [text("x")] },
+        { id: "b", name: "B", qualified: true, steps: [text("y")] },
+      ],
+    });
+    expect(r.branches.map((b) => b.qualified)).toEqual([false, true]);
+  });
+
   it("rejects a button pointing to a missing branch", () => {
     const r = sequenceSchema.safeParse({
       main: [text("a", { buttons: [{ label: "X", branchId: "nope" }] })],

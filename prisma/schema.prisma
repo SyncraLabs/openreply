@@ -88,6 +88,7 @@ model Workspace {
   radarPosts        RadarPost[]
   dailyMetrics      DailyMetric[]
   mediaAssets       MediaAsset[]
+  sequenceChoices   SequenceChoice[]
 
   @@index([ownerId])
 }
@@ -227,10 +228,34 @@ model Automation {
   dmLogs           DmLog[]
   trackedLinks     TrackedLink[]
   linkClicks       LinkClick[]
+  sequenceChoices  SequenceChoice[]
 
   @@index([workspaceId])
   @@index([instagramAccountId])
   @@index([postId])
+}
+
+// The branch button someone tapped in a campaign sequence (lib/sequence.ts):
+// their triage answer. One row per person and campaign; a later tap replaces
+// it. Name and `qualified` are copied at tap time so renaming a branch later
+// doesn't rewrite history.
+model SequenceChoice {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  automationId String
+  // Instagram-scoped user id, the same value as DmLog.commenterId.
+  userId       String
+  branchId     String
+  branchName   String
+  qualified    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workspace  Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  automation Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@unique([automationId, userId])
+  @@index([workspaceId])
 }
 
 // Files uploaded for campaign messages (images, audio, video, PDF). Served

@@ -52,6 +52,8 @@ const stepSchema = z
 const branchSchema = z.object({
   id: idSchema.refine((id) => id !== MAIN_BRANCH, "Reserved id"),
   name: z.string().trim().min(1, "Name every branch").max(40),
+  // Tapping into this branch marks the person as a qualified lead in Contacts.
+  qualified: z.boolean().default(false),
   steps: z.array(stepSchema).min(1, "A branch needs at least one message").max(10),
 });
 

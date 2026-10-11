@@ -822,6 +822,23 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
       where: { automationId: target.id, commenterId: userId },
       select: { commenterName: true },
     });
+    // Record the answer (the triage) before sending anything, so it shows in
+    // Contacts even if the branch's messages fail to go out.
+    const chosen = parseSequence(target.sequence).branches.find(
+      (b) => b.id === branch.branchId
+    );
+    if (chosen) {
+      const answer = {
+        branchId: chosen.id,
+        branchName: chosen.name,
+        qualified: chosen.qualified,
+      };
+      await prisma.sequenceChoice.upsert({
+        where: { automationId_userId: { automationId: target.id, userId } },
+        create: { workspaceId: target.workspaceId, automationId: target.id, userId, ...answer },
+        update: answer,
+      });
+    }
     await startSequence(target, userId, nameLog?.commenterName ?? null, branch.branchId);
     return;
   }

@@ -36,6 +36,9 @@ const {
     operationalEvent: {
       create: vi.fn(),
     },
+    sequenceChoice: {
+      upsert: vi.fn(),
+    },
   },
   mockSendPrivateReply: vi.fn(),
   mockSendPrivateReplyWithLinkButton: vi.fn(),
@@ -1206,7 +1209,7 @@ describe("DM Worker — sequences and branches", () => {
       { id: "s2", type: "audio", text: "", mediaUrl: "https://cdn.test/a.m4a", delaySeconds: 600, buttons: [] },
     ],
     branches: [
-      { id: "prices", name: "Prices", steps: [
+      { id: "prices", name: "Prices", qualified: true, steps: [
         { id: "p1", type: "image", text: "", mediaUrl: "https://cdn.test/p.png", delaySeconds: 0, buttons: [] },
       ] },
     ],
@@ -1308,6 +1311,39 @@ describe("DM Worker — sequences and branches", () => {
     expect(opts.delay).toBe(0);
   });
 
+  it("should record the tapped branch as the person's triage answer", async () => {
+    const processor = getProcessor();
+    await processor(createMockPostbackJob({
+      instagramAccountId: "ig_456",
+      userId: "commenter_999",
+      payload: "branch:auto_789:prices",
+    }));
+
+    expect(mockPrisma.sequenceChoice.upsert).toHaveBeenCalledWith({
+      where: { automationId_userId: { automationId: "auto_789", userId: "commenter_999" } },
+      create: {
+        workspaceId: "workspace_123",
+        automationId: "auto_789",
+        userId: "commenter_999",
+        branchId: "prices",
+        branchName: "Prices",
+        qualified: true,
+      },
+      update: { branchId: "prices", branchName: "Prices", qualified: true },
+    });
+  });
+
+  it("should not record an answer for a branch that no longer exists", async () => {
+    const processor = getProcessor();
+    await processor(createMockPostbackJob({
+      instagramAccountId: "ig_456",
+      userId: "commenter_999",
+      payload: "branch:auto_789:deleted",
+    }));
+    expect(mockPrisma.sequenceChoice.upsert).not.toHaveBeenCalled();
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
   it("should ignore a branch button from another account", async () => {
     const processor = getProcessor();
     await processor(createMockPostbackJob({
@@ -1316,6 +1352,7 @@ describe("DM Worker — sequences and branches", () => {
       payload: "branch:auto_789:prices",
     }));
     expect(mockQueueAdd).not.toHaveBeenCalled();
+    expect(mockPrisma.sequenceChoice.upsert).not.toHaveBeenCalled();
   });
 
   it("should start the sequence after a DM keyword trigger", async () => {
