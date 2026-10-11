@@ -19,6 +19,8 @@ const {
   mockSendDirectMessageWithButtons,
   mockSendCommentReply,
   mockReservePacedSlot,
+  mockClaimSend,
+  mockReleaseSend,
 } = vi.hoisted(() => ({
   mockPrisma: {
     automation: {
@@ -59,6 +61,8 @@ const {
   mockSendDirectMessageWithButtons: vi.fn(),
   mockSendCommentReply: vi.fn(),
   mockReservePacedSlot: vi.fn(),
+  mockClaimSend: vi.fn(),
+  mockReleaseSend: vi.fn(),
 }));
 
 vi.mock("@/lib/db/client", () => ({
@@ -108,6 +112,8 @@ vi.mock("@/lib/utils/keyword-matcher", () => ({
 vi.mock("@/lib/utils/rate-limiter", () => ({
   reserveDMSlot: mockReserveDMSlot,
   reservePacedSlot: mockReservePacedSlot,
+  claimSend: mockClaimSend,
+  releaseSend: mockReleaseSend,
 }));
 
 vi.mock("@/lib/billing/usage", () => ({
@@ -290,6 +296,8 @@ beforeEach(() => {
   mockGetUserFollowStatus.mockResolvedValue(true);
   // No queue by default: the turn is the time the campaign wanted.
   mockReservePacedSlot.mockImplementation(async (_acct: string, wanted: Date) => wanted);
+  mockClaimSend.mockResolvedValue(true);
+  mockReleaseSend.mockResolvedValue(undefined);
 });
 
 describe("DM Worker — Full Pipeline", () => {
@@ -1512,5 +1520,63 @@ describe("DM Worker — pacing", () => {
     await processor(createMockJob({ ...mockJobData, scheduledAutomationId: "auto_789" } as typeof mockJobData));
     expect(mockReservePacedSlot).not.toHaveBeenCalled();
     expect(mockSendPrivateReply).toHaveBeenCalled();
+  });
+});
+
+describe("DM Worker — one sender at a time", () => {
+  it("should not send when another worker already claimed the comment", async () => {
+    mockClaimSend.mockResolvedValue(false);
+    const processor = getProcessor();
+    await processor(createMockJob());
+    expect(mockClaimSend).toHaveBeenCalledWith([
+      "send:comment:comment_555",
+      "send:person:auto_789:commenter_999",
+    ]);
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    expect(mockReserveWorkspaceDMSend).not.toHaveBeenCalled();
+  });
+
+  it("should keep the claim after a successful send", async () => {
+    const processor = getProcessor();
+    await processor(createMockJob());
+    expect(mockSendPrivateReply).toHaveBeenCalled();
+    expect(mockReleaseSend).not.toHaveBeenCalled();
+  });
+
+  it("should release the claim when the send fails, so a retry can go", async () => {
+    mockSendPrivateReply.mockRejectedValue(new Error("boom"));
+    const processor = getProcessor();
+    await expect(processor(createMockJob())).rejects.toThrow("boom");
+    expect(mockReleaseSend).toHaveBeenCalledWith([
+      "send:comment:comment_555",
+      "send:person:auto_789:commenter_999",
+    ]);
+  });
+
+  it("should give a retry of a delayed reply a new turn instead of sending at once", async () => {
+    mockPrisma.dmLog.findUnique.mockResolvedValue({ status: "FAILED", scheduledAt: new Date(Date.now() - 60_000), publicReplySentAt: null });
+    mockReservePacedSlot.mockResolvedValue(new Date(Date.now() + 90_000));
+    const processor = getProcessor();
+    await processor({
+      ...createMockJob({ ...mockJobData, scheduledAutomationId: "auto_789" } as typeof mockJobData),
+      attemptsMade: 2,
+    });
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    const [, , opts] = mockQueueAdd.mock.calls[0];
+    expect(opts.delay).toBeGreaterThan(80_000);
+    expect(opts.jobId).toMatch(/_sched_auto_789_\d+$/);
+  });
+
+  it("should not let two DM triggers from the same person both send", async () => {
+    mockClaimSend.mockResolvedValue(false);
+    mockPrisma.automation.findMany.mockResolvedValue([{ ...mockAutomation, dmTriggerEnabled: true, requireFollow: false }]);
+    const processor = getProcessor();
+    await processor({
+      name: "process-message",
+      data: { instagramAccountId: "ig_456", messageId: "mid_9", messageText: "LINK", senderId: "commenter_999" },
+      id: "m9",
+      attemptsMade: 0,
+    });
+    expect(mockSendDirectMessage).not.toHaveBeenCalled();
   });
 });

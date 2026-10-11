@@ -31,7 +31,12 @@ import {
 } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
-import { reserveDMSlot, reservePacedSlot } from "@/lib/utils/rate-limiter";
+import {
+  claimSend,
+  releaseSend,
+  reserveDMSlot,
+  reservePacedSlot,
+} from "@/lib/utils/rate-limiter";
 import {
   releaseWorkspaceDMReservation,
   reserveWorkspaceDMSend,
@@ -410,11 +415,15 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     }
 
     // Send delay / window, then pacing: park the whole reply (public + DM) on a
-    // delayed job at the account's next free turn.
-    if (needsDm && !isScheduledRun && !scheduledAt) {
+    // delayed job at the account's next free turn. Everything that hasn't got a
+    // turn takes one: a new comment, a reply whose delayed job was lost, and a
+    // retry of the delayed run (BullMQ retries would otherwise fire in a burst).
+    const isRetry = isScheduledRun && job.attemptsMade > 0;
+    if (needsDm && (!isScheduledRun || isRetry)) {
+      const fresh = !isScheduledRun && !scheduledAt;
       const sendAt = await reservePacedSlot(
         instagramAccountId,
-        computeSendAt(automation)
+        fresh ? computeSendAt(automation) : new Date()
       );
       const delay = sendAt.getTime() - Date.now();
       if (delay > 1000) {
@@ -429,7 +438,9 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           { ...job.data, scheduledAutomationId: automation.id },
           {
             delay,
-            jobId: `comment_${instagramAccountId}_${commentId}_sched_${automation.id}`,
+            // A re-park can't reuse the first delayed job's id: that job is the
+            // one running (or still kept as completed), so the add would be dropped.
+            jobId: `comment_${instagramAccountId}_${commentId}_sched_${automation.id}${fresh ? "" : `_${Date.now()}`}`,
           }
         );
         continue;
@@ -525,8 +536,16 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       continue;
     }
 
+    // Only one worker sends a given comment, and one DM per person at a time.
+    const claim = [
+      `send:comment:${commentId}`,
+      `send:person:${automation.id}:${commenterId}`,
+    ];
+    if (!(await claimSend(claim))) continue;
+
     const usage = await reserveWorkspaceDMSend(automation.workspaceId);
     if (!usage.allowed) {
+      await releaseSend(claim);
       await prisma.dmLog.update({
         where: {
           automationId_commentId: {
@@ -551,6 +570,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         automation.workspaceId,
         usage.periodStart
       );
+      await releaseSend(claim);
       await prisma.dmLog.update({
         where: {
           automationId_commentId: {
@@ -572,6 +592,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         automation.workspaceId,
         usage.periodStart
       );
+      await releaseSend(claim);
 
       if (rateLimit.shouldSkip) {
         await prisma.dmLog.update({
@@ -753,6 +774,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         automation.workspaceId,
         usage.periodStart
       );
+      await releaseSend(claim);
 
       await prisma.dmLog.update({
         where: {
@@ -1340,12 +1362,15 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
       matchedKeyword: matchResult.matchedKeyword,
     };
 
-    // Send delay / window: reply later from a delayed copy of this job.
-    if (scheduledAutomationId !== automation.id) {
-      if (existingLog?.status === "PENDING" && existingLog.scheduledAt) continue;
+    // Send delay / window, then pacing: reply later from a delayed copy of this
+    // job. A retry of that delayed copy takes a new turn too.
+    const isScheduledRun = scheduledAutomationId === automation.id;
+    const isRetry = isScheduledRun && job.attemptsMade > 0;
+    if (!isScheduledRun || isRetry) {
+      if (!isScheduledRun && existingLog?.status === "PENDING" && existingLog.scheduledAt) continue;
       const sendAt = await reservePacedSlot(
         instagramAccountId,
-        computeSendAt(automation)
+        isRetry ? new Date() : computeSendAt(automation)
       );
       const delay = sendAt.getTime() - Date.now();
       if (delay > 1000) {
@@ -1364,7 +1389,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
           { ...job.data, scheduledAutomationId: automation.id },
           {
             delay,
-            jobId: `message_${Buffer.from(messageId).toString("base64url")}_sched_${automation.id}`,
+            jobId: `message_${Buffer.from(messageId).toString("base64url")}_sched_${automation.id}${isRetry ? `_${Date.now()}` : ""}`,
           }
         );
         continue;
@@ -1437,8 +1462,15 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
       sendFollowPrompt = follows !== true;
     }
 
+    const claim = [
+      `send:dm:${automation.id}:${dedupeId}`,
+      `send:person:${automation.id}:${senderId}`,
+    ];
+    if (!(await claimSend(claim))) continue;
+
     const usage = await reserveWorkspaceDMSend(automation.workspaceId);
     if (!usage.allowed) {
+      await releaseSend(claim);
       await prisma.dmLog.upsert({
         where: {
           automationId_commentId: {
@@ -1529,6 +1561,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
         automation.workspaceId,
         usage.periodStart
       );
+      await releaseSend(claim);
       await prisma.dmLog.upsert({
         where: {
           automationId_commentId: {

@@ -230,13 +230,13 @@ export { RATE_LIMIT_MAX, RATE_LIMIT_WINDOW, REQUEUE_DELAY_MS, MAX_REQUEUE_ATTEMP
 // The hourly cap above is Meta's ceiling, not a safe sending pattern: a
 // backlog (a viral reel, a campaign switched on late) would still go out in a
 // burst, which is what spam detection reacts to. Pacing gives every
-// first-contact DM its own turn per account, a random 30-90 s after the
-// previous one (~60 per hour). Tune on the worker with DM_PACE_MIN_SECONDS and
+// first-contact DM its own turn per account, a random 30-120 s after the
+// previous one (~48 per hour). Tune on the worker with DM_PACE_MIN_SECONDS and
 // DM_PACE_MAX_SECONDS.
 
 function paceGapMs(random: () => number = Math.random): number {
   const min = Math.max(0, Number(process.env.DM_PACE_MIN_SECONDS ?? 30));
-  const max = Math.max(min, Number(process.env.DM_PACE_MAX_SECONDS ?? 90));
+  const max = Math.max(min, Number(process.env.DM_PACE_MAX_SECONDS ?? 120));
   return Math.round((min + random() * (max - min)) * 1000);
 }
 
@@ -269,4 +269,39 @@ export async function reservePacedSlot(
     String(paceGapMs())
   );
   return new Date(toScriptNumber(slot));
+}
+
+// ─── Send claims ────────────────────────────────────────────────────────────
+//
+// The DB checks (already SENT, same person) run before the send, so two
+// workers handling the same comment at the same moment (a retry plus a
+// re-enqueue) both pass them and both send: Meta accepted the duplicate. A
+// claim is taken atomically right before sending; whoever doesn't get it
+// skips. Kept after a successful send (the SENT row covers it from then on)
+// and released on failure so a retry can go ahead.
+
+const CLAIM_TTL_SECONDS = 15 * 60;
+
+const CLAIM_SCRIPT = `
+for i, key in ipairs(KEYS) do
+  if redis.call("EXISTS", key) == 1 then return 0 end
+end
+for i, key in ipairs(KEYS) do
+  redis.call("SET", key, "1", "EX", tonumber(ARGV[1]))
+end
+return 1
+`;
+
+export async function claimSend(keys: string[]): Promise<boolean> {
+  const ok = await getRedis().eval(
+    CLAIM_SCRIPT,
+    keys.length,
+    ...keys,
+    String(CLAIM_TTL_SECONDS)
+  );
+  return toScriptNumber(ok) === 1;
+}
+
+export async function releaseSend(keys: string[]): Promise<void> {
+  if (keys.length > 0) await getRedis().del(...keys);
 }
