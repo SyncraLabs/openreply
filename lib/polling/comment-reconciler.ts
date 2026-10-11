@@ -237,6 +237,9 @@ async function sweepCampaign(
         commentId: { in: candidateIds },
         OR: [
           { status: "SENT" },
+          // Deliberately not sent (another campaign or an earlier comment by
+          // the same person got it); retrying can't change that.
+          { status: "SKIPPED_DEDUP" },
           PERMANENT_FAILURE_WHERE,
           // Parked on a send delay; its own job will send it.
           {

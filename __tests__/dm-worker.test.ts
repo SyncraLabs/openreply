@@ -17,6 +17,7 @@ const {
   mockReleaseWorkspaceDMReservation,
   mockSendDirectMessageAttachment,
   mockSendDirectMessageWithButtons,
+  mockSendCommentReply,
 } = vi.hoisted(() => ({
   mockPrisma: {
     automation: {
@@ -55,6 +56,7 @@ const {
   mockReleaseWorkspaceDMReservation: vi.fn(),
   mockSendDirectMessageAttachment: vi.fn(),
   mockSendDirectMessageWithButtons: vi.fn(),
+  mockSendCommentReply: vi.fn(),
 }));
 
 vi.mock("@/lib/db/client", () => ({
@@ -71,7 +73,7 @@ vi.mock("@/lib/meta/client", () => ({
   sendDirectMessageWithLinkButton: mockSendDirectMessageWithLinkButton,
   sendDirectMessageAttachment: mockSendDirectMessageAttachment,
   sendDirectMessageWithButtons: mockSendDirectMessageWithButtons,
-  sendCommentReply: vi.fn(),
+  sendCommentReply: mockSendCommentReply,
   MetaApiError: class MetaApiError extends Error {
     code: number;
     constructor(
@@ -230,8 +232,8 @@ beforeEach(() => {
   // lookup. Only the latter should resolve by default, or every comment would
   // look like a duplicate of an already-answered one.
   mockPrisma.dmLog.findFirst.mockImplementation(
-    async (args: { where?: { OR?: unknown } } = {}) =>
-      args.where?.OR ? null : { commenterName: "commenter_user" }
+    async (args: { where?: { OR?: unknown; commentId?: unknown } } = {}) =>
+      args.where?.OR || args.where?.commentId ? null : { commenterName: "commenter_user" }
   );
   mockPrisma.dmLog.upsert.mockResolvedValue({});
   mockPrisma.dmLog.update.mockResolvedValue({});
@@ -831,8 +833,10 @@ describe("DM Worker — Full Pipeline", () => {
 describe("DM Worker — one private reply per comment", () => {
   it("should skip a campaign when another already used the comment's private reply", async () => {
     mockPrisma.dmLog.findFirst.mockImplementation(
-      async (args: { where?: { OR?: unknown } } = {}) =>
-        args.where?.OR
+      async (args: { where?: { OR?: unknown; commenterId?: unknown } } = {}) =>
+        args.where?.commenterId
+          ? null
+          : args.where?.OR
           ? { automation: { name: "openreply 1" } }
           : { commenterName: "commenter_user" }
     );
@@ -1377,5 +1381,101 @@ describe("DM Worker — sequences and branches", () => {
     await processor(createMockJob());
     expect(mockSendPrivateReply).toHaveBeenCalled();
     expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+});
+
+describe("DM Worker — no repeated DMs or public replies", () => {
+  const withReply = {
+    ...mockAutomation,
+    publicReplyEnabled: true,
+    publicReplyMessages: ["te he escrito!"],
+  };
+
+  // findFirst serves several lookups; route each by the shape of its where.
+  function routeFindFirst(opts: { samePerson?: boolean; otherCampaign?: boolean }) {
+    mockPrisma.dmLog.findFirst.mockImplementation(
+      async (args: { where?: { OR?: unknown; commentId?: unknown; commenterId?: unknown } } = {}) => {
+        const w = args.where ?? {};
+        if (w.commenterId && w.commentId) return opts.samePerson ? { id: "other" } : null;
+        if (w.OR) return opts.otherCampaign ? { automation: { name: "otra" } } : null;
+        return { commenterName: "commenter_user" };
+      }
+    );
+  }
+
+  beforeEach(() => {
+    mockPrisma.automation.findMany.mockResolvedValue([withReply]);
+    mockSendCommentReply.mockResolvedValue({});
+  });
+
+  it("should post the public reply only after the DM goes out", async () => {
+    routeFindFirst({});
+    const processor = getProcessor();
+    await processor(createMockJob());
+
+    expect(mockSendPrivateReply).toHaveBeenCalled();
+    expect(mockSendCommentReply).toHaveBeenCalledWith("decrypted_token", "comment_555", "te he escrito!");
+    expect(mockSendPrivateReply.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSendCommentReply.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("should not post the public reply when the DM fails", async () => {
+    routeFindFirst({});
+    mockSendPrivateReply.mockRejectedValue(new Error("The account owner has disabled access to Instagram Direct Messaging."));
+    const processor = getProcessor();
+    await expect(processor(createMockJob())).rejects.toThrow();
+    expect(mockSendCommentReply).not.toHaveBeenCalled();
+  });
+
+  it("should skip a person's second comment on the same campaign", async () => {
+    routeFindFirst({ samePerson: true });
+    const processor = getProcessor();
+    await processor(createMockJob());
+
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    expect(mockSendCommentReply).not.toHaveBeenCalled();
+    expect(mockPrisma.dmLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "SKIPPED_DEDUP" }) })
+    );
+  });
+
+  it("should not post a public reply when another campaign took the comment", async () => {
+    routeFindFirst({ otherCampaign: true });
+    const processor = getProcessor();
+    await processor(createMockJob());
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    expect(mockSendCommentReply).not.toHaveBeenCalled();
+  });
+
+  it("should never come back to a comment it deliberately skipped", async () => {
+    routeFindFirst({});
+    mockPrisma.dmLog.findUnique.mockResolvedValue({ status: "SKIPPED_DEDUP", publicReplySentAt: null, scheduledAt: null });
+    const processor = getProcessor();
+    await processor(createMockJob());
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    expect(mockSendCommentReply).not.toHaveBeenCalled();
+  });
+
+  it("should only retry the public reply when the DM already went out", async () => {
+    routeFindFirst({});
+    mockPrisma.dmLog.findUnique.mockResolvedValue({ status: "SENT", publicReplySentAt: null, scheduledAt: null });
+    const processor = getProcessor();
+    await processor(createMockJob());
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    expect(mockSendCommentReply).toHaveBeenCalledTimes(1);
+  });
+
+  it("should answer a DM keyword only once per person", async () => {
+    routeFindFirst({ samePerson: true });
+    mockPrisma.automation.findMany.mockResolvedValue([{ ...mockAutomation, dmTriggerEnabled: true, requireFollow: false }]);
+    const processor = getProcessor();
+    await processor({
+      name: "process-message",
+      data: { instagramAccountId: "ig_456", messageId: "mid_2", messageText: "LINK", senderId: "commenter_999" },
+      id: "m2",
+      attemptsMade: 0,
+    });
+    expect(mockSendDirectMessage).not.toHaveBeenCalled();
   });
 });

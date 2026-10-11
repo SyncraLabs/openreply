@@ -282,6 +282,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     // already sent but whose public reply never posted (e.g. it hit a rate
     // limit) must still come back so the public reply can be retried.
     if (existingLog?.status === "SKIPPED_PLAN_LIMIT") continue;
+    if (existingLog?.status === "SKIPPED_DEDUP") continue;
     if (alreadyDmd && (alreadyPublicReplied || !automation.publicReplyEnabled)) {
       continue;
     }
@@ -377,6 +378,37 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       });
     }
 
+    // One DM per person per campaign: someone who comments three times gets one
+    // message (and one public reply), not three. Before parking, a reply already
+    // parked for another of their comments counts too; at send time only a
+    // delivered one does, so two parked replies can't cancel each other out.
+    if (needsDm) {
+      const parking = !isScheduledRun && !scheduledAt;
+      const samePerson = await prisma.dmLog.findFirst({
+        where: {
+          automationId: automation.id,
+          commenterId,
+          commentId: { not: commentId },
+          OR: parking
+            ? [{ status: "SENT" }, { status: "PENDING", scheduledAt: { not: null } }]
+            : [{ status: "SENT" }],
+        },
+        select: { id: true },
+      });
+      if (samePerson) {
+        await prisma.dmLog.update({
+          where: {
+            automationId_commentId: { automationId: automation.id, commentId },
+          },
+          data: {
+            status: "SKIPPED_DEDUP",
+            errorMessage: "This person already got this campaign's DM for another comment",
+          },
+        });
+        continue;
+      }
+    }
+
     // Send delay / window: park the whole reply (public + DM) on a delayed job.
     if (needsDm && !isScheduledRun && !scheduledAt) {
       const sendAt = computeSendAt(automation);
@@ -400,62 +432,66 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       }
     }
 
-    // Public reply leg — decoupled from the DM and posted first so a DM failure
-    // (e.g. a non-follower whose messaging is restricted) never suppresses it.
+    // Public reply leg. It goes out only after this campaign's DM is delivered:
+    // the replies say "te he escrito", so posting one for a DM that failed (or
+    // that another campaign sent) tells people something that isn't true.
     // Idempotent across retries via publicReplySentAt.
-    const replyPool =
-      automation.publicReplyMessages.length > 0
-        ? automation.publicReplyMessages
-        : automation.publicReplyMessage
-          ? [automation.publicReplyMessage]
-          : [];
-    if (
-      automation.publicReplyEnabled &&
-      replyPool.length > 0 &&
-      !existingLog?.publicReplySentAt
-    ) {
-      try {
-        const chosen = replyPool[Math.floor(Math.random() * replyPool.length)];
-        const publicReply = renderMessageWithTracking({
-          message: chosen,
-          commenterName,
-          trackedLinks: automation.trackedLinks,
-        });
-        await sendCommentReply(accessToken, commentId, publicReply);
-        await prisma.dmLog.update({
-          where: {
-            automationId_commentId: { automationId: automation.id, commentId },
-          },
-          data: { publicReplySentAt: new Date(), publicReplyError: null },
-        });
-      } catch (error) {
-        console.error(
-          "[DM Worker] Public comment reply failed:",
-          formatError(error)
-        );
-        await prisma.dmLog
-          .update({
+    const postPublicReply = async () => {
+      const replyPool =
+        automation.publicReplyMessages.length > 0
+          ? automation.publicReplyMessages
+          : automation.publicReplyMessage
+            ? [automation.publicReplyMessage]
+            : [];
+      if (
+        automation.publicReplyEnabled &&
+        replyPool.length > 0 &&
+        !existingLog?.publicReplySentAt
+      ) {
+        try {
+          const chosen = replyPool[Math.floor(Math.random() * replyPool.length)];
+          const publicReply = renderMessageWithTracking({
+            message: chosen,
+            commenterName,
+            trackedLinks: automation.trackedLinks,
+          });
+          await sendCommentReply(accessToken, commentId, publicReply);
+          await prisma.dmLog.update({
             where: {
               automationId_commentId: { automationId: automation.id, commentId },
             },
-            data: { publicReplyError: formatError(error) },
-          })
-          .catch(() => {});
+            data: { publicReplySentAt: new Date(), publicReplyError: null },
+          });
+        } catch (error) {
+          console.error(
+            "[DM Worker] Public comment reply failed:",
+            formatError(error)
+          );
+          await prisma.dmLog
+            .update({
+              where: {
+                automationId_commentId: { automationId: automation.id, commentId },
+              },
+              data: { publicReplyError: formatError(error) },
+            })
+            .catch(() => {});
+        }
       }
-    }
+    };
 
-    // DM already sent on an earlier pass; the public reply retry above was all
-    // this run needed. Don't re-send the DM.
-    if (!needsDm) continue;
+    // DM already sent on an earlier pass: only the public reply can be missing.
+    if (!needsDm) {
+      await postPublicReply();
+      continue;
+    }
 
     // Meta allows exactly ONE private reply per comment, ever — across every
     // campaign. When several campaigns match the same comment (duplicated
     // campaigns, or an any-post campaign overlapping a post-specific one), only
     // the first can deliver; the rest would fail with "The comment is invalid
     // for a private reply". Skip them explicitly instead of burning an API call
-    // and logging a failure the user can do nothing about. The public reply
-    // above still goes out per campaign — only the DM leg is deduped.
-    // An older campaign still waiting on its send delay has claimed it too.
+    // and logging a failure the user can do nothing about. The campaign that
+    // does send posts the public reply. An older campaign still waiting on its send delay has claimed it too.
     const privateReplyUsedBy = await prisma.dmLog.findFirst({
       where: {
         commentId,
@@ -729,6 +765,8 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       });
       throw error;
     }
+
+    await postPublicReply();
   }
 }
 
@@ -1274,6 +1312,19 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
     ) {
       continue;
     }
+
+    // One answer per person per campaign: writing the keyword again, or having
+    // already got it from a comment, doesn't send it twice.
+    const alreadyAnswered = await prisma.dmLog.findFirst({
+      where: {
+        automationId: automation.id,
+        commenterId: senderId,
+        commentId: { not: dedupeId },
+        status: "SENT",
+      },
+      select: { id: true },
+    });
+    if (alreadyAnswered) continue;
 
     const logBase = {
       workspaceId: automation.workspaceId,
