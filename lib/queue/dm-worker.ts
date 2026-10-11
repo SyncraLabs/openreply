@@ -31,7 +31,7 @@ import {
 } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
-import { reserveDMSlot } from "@/lib/utils/rate-limiter";
+import { reserveDMSlot, reservePacedSlot } from "@/lib/utils/rate-limiter";
 import {
   releaseWorkspaceDMReservation,
   reserveWorkspaceDMSend,
@@ -409,9 +409,13 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       }
     }
 
-    // Send delay / window: park the whole reply (public + DM) on a delayed job.
+    // Send delay / window, then pacing: park the whole reply (public + DM) on a
+    // delayed job at the account's next free turn.
     if (needsDm && !isScheduledRun && !scheduledAt) {
-      const sendAt = computeSendAt(automation);
+      const sendAt = await reservePacedSlot(
+        instagramAccountId,
+        computeSendAt(automation)
+      );
       const delay = sendAt.getTime() - Date.now();
       if (delay > 1000) {
         await prisma.dmLog.update({
@@ -1339,7 +1343,10 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
     // Send delay / window: reply later from a delayed copy of this job.
     if (scheduledAutomationId !== automation.id) {
       if (existingLog?.status === "PENDING" && existingLog.scheduledAt) continue;
-      const sendAt = computeSendAt(automation);
+      const sendAt = await reservePacedSlot(
+        instagramAccountId,
+        computeSendAt(automation)
+      );
       const delay = sendAt.getTime() - Date.now();
       if (delay > 1000) {
         await prisma.dmLog.upsert({

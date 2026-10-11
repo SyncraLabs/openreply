@@ -224,3 +224,49 @@ export async function resetRateLimit(
 
 // Export constants for use in tests
 export { RATE_LIMIT_MAX, RATE_LIMIT_WINDOW, REQUEUE_DELAY_MS, MAX_REQUEUE_ATTEMPTS };
+
+// ─── Pacing ─────────────────────────────────────────────────────────────────
+//
+// The hourly cap above is Meta's ceiling, not a safe sending pattern: a
+// backlog (a viral reel, a campaign switched on late) would still go out in a
+// burst, which is what spam detection reacts to. Pacing gives every
+// first-contact DM its own turn per account, a random 30-90 s after the
+// previous one (~60 per hour). Tune on the worker with DM_PACE_MIN_SECONDS and
+// DM_PACE_MAX_SECONDS.
+
+function paceGapMs(random: () => number = Math.random): number {
+  const min = Math.max(0, Number(process.env.DM_PACE_MIN_SECONDS ?? 30));
+  const max = Math.max(min, Number(process.env.DM_PACE_MAX_SECONDS ?? 90));
+  return Math.round((min + random() * (max - min)) * 1000);
+}
+
+// Atomically: the turn is the later of the wanted time and the last turn plus
+// the gap; it becomes the new last turn. The first DM after a quiet spell goes
+// out at the wanted time.
+const RESERVE_PACED_SLOT_SCRIPT = `
+local last = tonumber(redis.call("GET", KEYS[1]) or "0")
+local wanted = tonumber(ARGV[1])
+local gap = tonumber(ARGV[2])
+local slot = wanted
+if last + gap > slot then slot = last + gap end
+redis.call("SET", KEYS[1], slot, "EX", 604800)
+return slot
+`;
+
+/**
+ * Reserve a send turn for an account. Returns the time the DM may go out:
+ * `wanted` when nothing is queued, otherwise the queue's next free turn.
+ */
+export async function reservePacedSlot(
+  instagramAccountId: string,
+  wanted: Date
+): Promise<Date> {
+  const slot = await getRedis().eval(
+    RESERVE_PACED_SLOT_SCRIPT,
+    1,
+    `pace:dm:${instagramAccountId}`,
+    String(wanted.getTime()),
+    String(paceGapMs())
+  );
+  return new Date(toScriptNumber(slot));
+}

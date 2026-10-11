@@ -18,6 +18,7 @@ const {
   mockSendDirectMessageAttachment,
   mockSendDirectMessageWithButtons,
   mockSendCommentReply,
+  mockReservePacedSlot,
 } = vi.hoisted(() => ({
   mockPrisma: {
     automation: {
@@ -57,6 +58,7 @@ const {
   mockSendDirectMessageAttachment: vi.fn(),
   mockSendDirectMessageWithButtons: vi.fn(),
   mockSendCommentReply: vi.fn(),
+  mockReservePacedSlot: vi.fn(),
 }));
 
 vi.mock("@/lib/db/client", () => ({
@@ -105,6 +107,7 @@ vi.mock("@/lib/utils/keyword-matcher", () => ({
 
 vi.mock("@/lib/utils/rate-limiter", () => ({
   reserveDMSlot: mockReserveDMSlot,
+  reservePacedSlot: mockReservePacedSlot,
 }));
 
 vi.mock("@/lib/billing/usage", () => ({
@@ -285,6 +288,8 @@ beforeEach(() => {
     message_id: "msg_006",
   });
   mockGetUserFollowStatus.mockResolvedValue(true);
+  // No queue by default: the turn is the time the campaign wanted.
+  mockReservePacedSlot.mockImplementation(async (_acct: string, wanted: Date) => wanted);
 });
 
 describe("DM Worker — Full Pipeline", () => {
@@ -1477,5 +1482,35 @@ describe("DM Worker — no repeated DMs or public replies", () => {
       attemptsMade: 0,
     });
     expect(mockSendDirectMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("DM Worker — pacing", () => {
+  it("should wait for the account's next turn even on an instant campaign", async () => {
+    mockReservePacedSlot.mockResolvedValue(new Date(Date.now() + 75_000));
+    const processor = getProcessor();
+    await processor(createMockJob());
+
+    expect(mockReservePacedSlot).toHaveBeenCalledWith("ig_456", expect.any(Date));
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    const [name, data, opts] = mockQueueAdd.mock.calls[0];
+    expect(name).toBe("process-comment");
+    expect(data).toMatchObject({ scheduledAutomationId: "auto_789" });
+    expect(opts.delay).toBeGreaterThan(70_000);
+  });
+
+  it("should send right away when nothing is queued", async () => {
+    const processor = getProcessor();
+    await processor(createMockJob());
+    expect(mockSendPrivateReply).toHaveBeenCalled();
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("should not take a new turn on the delayed run itself", async () => {
+    mockPrisma.dmLog.findUnique.mockResolvedValue({ status: "PENDING", scheduledAt: new Date(), publicReplySentAt: null });
+    const processor = getProcessor();
+    await processor(createMockJob({ ...mockJobData, scheduledAutomationId: "auto_789" } as typeof mockJobData));
+    expect(mockReservePacedSlot).not.toHaveBeenCalled();
+    expect(mockSendPrivateReply).toHaveBeenCalled();
   });
 });
