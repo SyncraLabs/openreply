@@ -1505,6 +1505,8 @@ describe("DM Worker — pacing", () => {
     expect(name).toBe("process-comment");
     expect(data).toMatchObject({ scheduledAutomationId: "auto_789" });
     expect(opts.delay).toBeGreaterThan(70_000);
+    // Unique id: a fixed one collides with a completed job and is dropped.
+    expect(opts.jobId).toMatch(/^comment_ig_456_comment_555_sched_auto_789_\d+$/);
   });
 
   it("should send right away when nothing is queued", async () => {

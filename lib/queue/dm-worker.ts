@@ -438,9 +438,11 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           { ...job.data, scheduledAutomationId: automation.id },
           {
             delay,
-            // A re-park can't reuse the first delayed job's id: that job is the
-            // one running (or still kept as completed), so the add would be dropped.
-            jobId: `comment_${instagramAccountId}_${commentId}_sched_${automation.id}${fresh ? "" : `_${Date.now()}`}`,
+            // Unique per park: a fixed id collides with an earlier delayed job
+            // BullMQ still keeps as completed, and the add is silently dropped
+            // (the reply then sits PENDING with nothing queued). Duplicates are
+            // stopped at send time by claimSend, not here.
+            jobId: `comment_${instagramAccountId}_${commentId}_sched_${automation.id}_${sendAt.getTime()}`,
           }
         );
         continue;
@@ -1389,7 +1391,8 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
           { ...job.data, scheduledAutomationId: automation.id },
           {
             delay,
-            jobId: `message_${Buffer.from(messageId).toString("base64url")}_sched_${automation.id}${isRetry ? `_${Date.now()}` : ""}`,
+            // Unique per park, for the same reason as comments.
+            jobId: `message_${Buffer.from(messageId).toString("base64url")}_sched_${automation.id}_${sendAt.getTime()}`,
           }
         );
         continue;
