@@ -231,6 +231,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       OR: [{ postId: mediaId }, { matchAnyPost: true }],
       ...(scheduledAutomationId ? { id: scheduledAutomationId } : {}),
       isActive: true,
+      retiredAt: null,
       instagramAccount: {
         instagramId: instagramAccountId,
       },
@@ -397,9 +398,17 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     // delivered one does, so two parked replies can't cancel each other out.
     if (needsDm) {
       const parking = !isScheduledRun && !scheduledAt;
+      // Every campaign this account has had on this post, retired ones too:
+      // whoever got a DM there before doesn't get another from a new one.
+      const samePostIds = (
+        await prisma.automation.findMany({
+          where: { instagramAccountId: automation.instagramAccountId, postId: mediaId },
+          select: { id: true },
+        })
+      ).map((a) => a.id);
       const samePerson = await prisma.dmLog.findFirst({
         where: {
-          automationId: automation.id,
+          automationId: { in: [...new Set([automation.id, ...samePostIds])] },
           commenterId,
           commentId: { not: commentId },
           OR: parking
@@ -415,7 +424,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           },
           data: {
             status: "SKIPPED_DEDUP",
-            errorMessage: "This person already got this campaign's DM for another comment",
+            errorMessage: "This person already got a DM for another comment on this post or campaign",
           },
         });
         continue;
@@ -1431,6 +1440,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
       dmTriggerEnabled: true,
       ...(scheduledAutomationId ? { id: scheduledAutomationId } : {}),
       isActive: true,
+      retiredAt: null,
       instagramAccount: { instagramId: instagramAccountId },
     },
     include: {

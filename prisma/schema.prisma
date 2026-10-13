@@ -216,6 +216,10 @@ model Automation {
   publicReplyMessage      String?
   publicReplyMessages     String[] @default([])
   isActive                Boolean  @default(true)
+  // Retired: takes no new comments or DMs, but still finishes what it already
+  // started (button taps, sequences, follow-ups). For handing a post over to a
+  // new campaign without leaving half-way conversations hanging.
+  retiredAt               DateTime?
   wholeWordMatch          Boolean  @default(true)
   reportShareSlug         String?  @unique
   reportShareEnabled      Boolean  @default(true)

@@ -334,6 +334,7 @@ describe("DM Worker — Full Pipeline", () => {
       where: {
         OR: [{ postId: "media_101" }, { matchAnyPost: true }],
         isActive: true,
+        retiredAt: null,
         instagramAccount: { instagramId: "ig_456" },
       },
       include: {
@@ -1463,6 +1464,45 @@ describe("DM Worker — no repeated DMs or public replies", () => {
     const processor = getProcessor();
     await expect(processor(createMockJob())).rejects.toThrow();
     expect(mockSendCommentReply).not.toHaveBeenCalled();
+  });
+
+  it("should check earlier DMs from every campaign on the same post, retired ones too", async () => {
+    routeFindFirst({});
+    mockPrisma.automation.findMany.mockImplementation(async (args: { where?: { postId?: string } } = {}) =>
+      args.where?.postId === "media_101" && !("OR" in (args.where ?? {}))
+        ? [{ id: "auto_789" }, { id: "old_retired" }]
+        : [withReply]
+    );
+    const processor = getProcessor();
+    await processor(createMockJob());
+
+    expect(mockPrisma.automation.findMany).toHaveBeenCalledWith({
+      where: { instagramAccountId: "ig_account_row_1", postId: "media_101" },
+      select: { id: true },
+    });
+    expect(mockPrisma.dmLog.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          automationId: { in: ["auto_789", "old_retired"] },
+          commenterId: "commenter_999",
+        }),
+      })
+    );
+  });
+
+  it("should not take new comments or DMs into a retired campaign", async () => {
+    const processor = getProcessor();
+    await processor(createMockJob());
+    await processor({
+      name: "process-message",
+      data: { instagramAccountId: "ig_456", messageId: "mid_1", messageText: "LINK", senderId: "commenter_999" },
+      id: "m",
+      attemptsMade: 0,
+    });
+    expect(mockPrisma.automation.findMany.mock.calls.length).toBeGreaterThanOrEqual(2);
+    for (const [args] of mockPrisma.automation.findMany.mock.calls) {
+      if ("isActive" in (args.where ?? {})) expect(args.where.retiredAt).toBeNull();
+    }
   });
 
   it("should skip a person's second comment on the same campaign", async () => {
