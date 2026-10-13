@@ -3,6 +3,7 @@
  *
  *   cd ~/openreply && ./tools/ops posts          # las 15 últimas
  *   cd ~/openreply && ./tools/ops posts 30       # las 30 últimas
+ *   cd ~/openreply && ./tools/ops posts 15 otra.cuenta   # de otra cuenta conectada
  *
  * Solo lectura. El ID que imprime es el que consume `./tools/ops bind`.
  */
@@ -11,8 +12,12 @@ import { decryptToken } from "../lib/meta/oauth.js";
 import { getUserMedia } from "../lib/meta/client.js";
 
 const limite = Number(process.argv[2] ?? 15);
+const usuario = process.argv[3]?.replace(/^@/, "");
 
+// Sin usuario, la primera que se conectó (@rodrigov.ia).
 const cuenta = await prisma.instagramAccount.findFirst({
+  where: usuario ? { username: usuario } : undefined,
+  orderBy: { connectedAt: "asc" },
   select: { id: true, username: true, accessToken: true },
 });
 if (!cuenta?.accessToken) {
@@ -22,7 +27,7 @@ if (!cuenta?.accessToken) {
 const media = await getUserMedia(decryptToken(cuenta.accessToken), limite);
 
 const campañas = await prisma.automation.findMany({
-  where: { postId: { not: null } },
+  where: { postId: { not: null }, instagramAccountId: cuenta.id },
   select: { name: true, postId: true },
 });
 const porPost = new Map<string, string[]>();

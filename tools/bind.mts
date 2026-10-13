@@ -26,7 +26,7 @@ if (!nombre || !referencia) {
 
 const campaña = await prisma.automation.findFirst({
   where: { name: nombre },
-  select: { id: true, name: true, postId: true, isActive: true },
+  select: { id: true, name: true, postId: true, isActive: true, instagramAccountId: true },
 });
 if (!campaña) {
   const todas = await prisma.automation.findMany({ select: { name: true } });
@@ -35,7 +35,9 @@ if (!campaña) {
   process.exit(1);
 }
 
-const cuenta = await prisma.instagramAccount.findFirst({
+// La cuenta de la campaña: con varias cuentas conectadas, el reel se busca en la suya.
+const cuenta = await prisma.instagramAccount.findUnique({
+  where: { id: campaña.instagramAccountId },
   select: { username: true, accessToken: true },
 });
 if (!cuenta?.accessToken) throw new Error("No hay cuenta conectada con token.");
