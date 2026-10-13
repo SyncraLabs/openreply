@@ -87,7 +87,7 @@ export default function CampaignsPage() {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused">(
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused" | "replaced">(
     "all"
   );
 
@@ -298,6 +298,11 @@ export default function CampaignsPage() {
 
   const query = search.trim().toLowerCase();
   const filtered = automations.filter((a) => {
+    // A replaced campaign only finishes old conversations; the one that took
+    // over its post is the one to look at, so it stays out of the usual lists.
+    if (statusFilter === "replaced") {
+      if (!a.retiredAt) return false;
+    } else if (a.retiredAt) return false;
     if (statusFilter === "active" && !a.isActive) return false;
     if (statusFilter === "paused" && a.isActive) return false;
     if (!query) return true;
@@ -354,7 +359,7 @@ export default function CampaignsPage() {
             className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
           />
           <div className="inline-flex shrink-0 rounded-lg bg-surface p-1">
-            {(["all", "active", "paused"] as const).map((s) => (
+            {(["all", "active", "paused", "replaced"] as const).map((s) => (
               <button
                 key={s}
                 type="button"
