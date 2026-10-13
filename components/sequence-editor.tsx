@@ -303,9 +303,47 @@ function StepCard({
           onChange={(delaySeconds) => onChange({ ...step, delaySeconds })}
         />
         <span className="text-xs text-muted">
-          {index === 0 ? firstWaitLabel : `after message ${index}`}
+          {step.waitForReply
+            ? "after they reply"
+            : index === 0
+              ? firstWaitLabel
+              : `after message ${index}`}
         </span>
       </div>
+
+      <div className="space-y-1">
+        <label className="flex items-center gap-2 text-xs text-foreground">
+          <input
+            type="checkbox"
+            checked={Boolean(step.waitForReply)}
+            onChange={(e) =>
+              onChange({
+                ...step,
+                waitForReply: e.target.checked,
+                // Reminders only make sense while waiting.
+                reminders: e.target.checked ? (step.reminders ?? []) : [],
+              })
+            }
+          />
+          Wait for them to reply first (text, voice note or photo)
+        </label>
+        <label className="flex items-center gap-2 text-xs text-foreground">
+          <input
+            type="checkbox"
+            checked={Boolean(step.skipIfReplied)}
+            onChange={(e) => onChange({ ...step, skipIfReplied: e.target.checked })}
+          />
+          Don&apos;t send it if they already replied to the previous message
+        </label>
+      </div>
+
+      {/* Sequences saved before these fields existed load without them. */}
+      {step.waitForReply && (
+        <RemindersEditor
+          reminders={step.reminders ?? []}
+          onChange={(reminders) => onChange({ ...step, reminders })}
+        />
+      )}
 
       {step.type === "text" ? (
         <>
@@ -329,6 +367,62 @@ function StepCard({
           url={step.mediaUrl}
           onChange={(mediaUrl) => onChange({ ...step, mediaUrl })}
         />
+      )}
+    </div>
+  );
+}
+
+function RemindersEditor({
+  reminders,
+  onChange,
+}: {
+  reminders: SequenceStep["reminders"];
+  onChange: (reminders: SequenceStep["reminders"]) => void;
+}) {
+  return (
+    <div className="space-y-2 rounded border border-border p-2">
+      <p className="text-xs text-muted">
+        Reminders while they haven&apos;t replied, counted from when the wait
+        starts. They stop as soon as they write.
+      </p>
+      {reminders.map((r, i) => (
+        <div key={i} className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted">Reminder {i + 1} after</span>
+            <DelayInput
+              seconds={r.afterSeconds}
+              onChange={(afterSeconds) =>
+                onChange(reminders.map((x, j) => (j === i ? { ...x, afterSeconds } : x)))
+              }
+            />
+            <button
+              type="button"
+              onClick={() => onChange(reminders.filter((_, j) => j !== i))}
+              className={LINK_BUTTON}
+            >
+              Remove
+            </button>
+          </div>
+          <textarea
+            value={r.text}
+            onChange={(e) =>
+              onChange(reminders.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))
+            }
+            placeholder="ey, ¿pudiste escucharlo?"
+            rows={2}
+            maxLength={1000}
+            className={`${INPUT} resize-none`}
+          />
+        </div>
+      ))}
+      {reminders.length < 3 && (
+        <button
+          type="button"
+          onClick={() => onChange([...reminders, { afterSeconds: 7200, text: "" }])}
+          className={LINK_BUTTON}
+        >
+          + Add reminder
+        </button>
       )}
     </div>
   );

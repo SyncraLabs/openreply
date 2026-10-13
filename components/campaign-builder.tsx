@@ -1065,10 +1065,13 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
             Text, images, audio, video or PDFs, each with its own wait. They go
             out after the link, once the person has tapped a button or DMed
             you: Instagram allows nothing more after a plain comment reply.
-            All waits must fit in 24 hours.
+            If the first message waits for their reply, the sequence starts
+            from the comment reply and goes on when they answer it. All waits
+            must fit in 24 hours.
           </p>
           {!openingDmEnabled &&
             !dmTriggerEnabled &&
+            !sequence.main[0]?.waitForReply &&
             sequence.main.length + sequence.branches.length > 0 && (
             <p className="rounded border border-error/20 bg-error/10 p-2 text-xs text-error">
               Turn on the opening DM or the DM trigger, or these messages
