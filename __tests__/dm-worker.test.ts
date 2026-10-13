@@ -21,7 +21,13 @@ const {
   mockReservePacedSlot,
   mockClaimSend,
   mockReleaseSend,
+  mockConvo,
 } = vi.hoisted(() => ({
+  // In-memory stand-in for the Redis conversation state.
+  mockConvo: {
+    inbound: new Map<string, number>(),
+    waits: new Map<string, Record<string, unknown>>(),
+  },
   mockPrisma: {
     automation: {
       findMany: vi.fn(),
@@ -119,6 +125,22 @@ vi.mock("@/lib/utils/rate-limiter", () => ({
 vi.mock("@/lib/billing/usage", () => ({
   reserveWorkspaceDMSend: mockReserveWorkspaceDMSend,
   releaseWorkspaceDMReservation: mockReleaseWorkspaceDMReservation,
+}));
+
+vi.mock("../lib/queue/conversation", () => ({
+  recordInbound: async (a: string, u: string, at = Date.now()) => {
+    mockConvo.inbound.set(`${a}:${u}`, at);
+  },
+  getLastInbound: async (a: string, u: string) => mockConvo.inbound.get(`${a}:${u}`) ?? null,
+  setWait: async (a: string, u: string, w: Record<string, unknown>) => {
+    mockConvo.waits.set(`${a}:${u}`, w);
+  },
+  getWait: async (a: string, u: string) => mockConvo.waits.get(`${a}:${u}`) ?? null,
+  takeWait: async (a: string, u: string) => {
+    const w = mockConvo.waits.get(`${a}:${u}`) ?? null;
+    mockConvo.waits.delete(`${a}:${u}`);
+    return w;
+  },
 }));
 
 vi.mock("@/lib/ops/worker-health", () => ({
@@ -231,6 +253,8 @@ function createMockPostbackJob(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockConvo.inbound.clear();
+  mockConvo.waits.clear();
 
   mockPrisma.automation.findMany.mockResolvedValue([mockAutomation]);
   mockPrisma.automation.findFirst.mockResolvedValue(null);
@@ -1580,5 +1604,162 @@ describe("DM Worker — one sender at a time", () => {
       attemptsMade: 0,
     });
     expect(mockSendDirectMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("DM Worker — sequences that wait for a reply", () => {
+  const step = (id: string, extra: Record<string, unknown> = {}) => ({
+    id, type: "text", text: `msg ${id}`, mediaUrl: null, delaySeconds: 0, buttons: [],
+    waitForReply: false, reminders: [], skipIfReplied: false, ...extra,
+  });
+  const sequence = {
+    main: [
+      step("a1", { type: "audio", text: "", mediaUrl: "https://cdn.test/1.m4a", delaySeconds: 60, waitForReply: true }),
+      step("a2", {
+        type: "audio", text: "", mediaUrl: "https://cdn.test/2.m4a", delaySeconds: 900, waitForReply: true,
+        reminders: [{ afterSeconds: 7200, text: "ey, ¿pudiste escucharlo?" }],
+      }),
+      step("link", { delaySeconds: 80 }),
+      step("seg", { delaySeconds: 7200, skipIfReplied: true }),
+    ],
+    branches: [],
+  };
+  const convoAutomation = { ...mockAutomation, sequence, requireFollow: false };
+
+  function stepJob(data: Record<string, unknown>) {
+    return {
+      name: "process-step",
+      data: {
+        instagramAccountId: "ig_456", userId: "commenter_999", automationId: "auto_789",
+        branchId: "main", runId: "1", commenterName: "commenter_user", ...data,
+      },
+      id: "step_job",
+      attemptsMade: 0,
+    };
+  }
+  function messageJob(text: string) {
+    return {
+      name: "process-message",
+      data: { instagramAccountId: "ig_456", messageId: "mid_r", messageText: text, senderId: "commenter_999" },
+      id: "m",
+      attemptsMade: 0,
+    };
+  }
+
+  beforeEach(() => {
+    mockPrisma.automation.findMany.mockResolvedValue([convoAutomation]);
+    mockPrisma.automation.findFirst.mockResolvedValue(convoAutomation);
+    mockSendDirectMessageAttachment.mockResolvedValue({});
+  });
+
+  it("parks the sequence after the comment's private reply instead of sending", async () => {
+    const processor = getProcessor();
+    await processor(createMockJob());
+
+    expect(mockSendPrivateReply).toHaveBeenCalled();
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+    expect(mockConvo.waits.get("ig_456:commenter_999")).toMatchObject({
+      automationId: "auto_789", branchId: "main", index: 0,
+    });
+  });
+
+  it("resumes on their reply, counting the step's wait from now, and triggers nothing else", async () => {
+    mockConvo.waits.set("ig_456:commenter_999", {
+      automationId: "auto_789", branchId: "main", index: 0, runId: "1", commenterName: "commenter_user", waitId: "w",
+    });
+    mockPrisma.automation.findMany.mockClear();
+    const processor = getProcessor();
+    await processor(messageJob("hola, me interesa"));
+
+    expect(mockQueueAdd).toHaveBeenCalledWith(
+      "process-step",
+      expect.objectContaining({ index: 0, runId: "1" }),
+      { delay: 60_000, jobId: "step_auto_789_commenter_999_main_1_0" }
+    );
+    expect(mockConvo.waits.size).toBe(0);
+    expect(mockPrisma.automation.findMany).not.toHaveBeenCalled();
+    expect(mockSendDirectMessage).not.toHaveBeenCalled();
+  });
+
+  it("counts a voice note as a reply", async () => {
+    mockConvo.waits.set("ig_456:commenter_999", {
+      automationId: "auto_789", branchId: "main", index: 1, runId: "1", commenterName: null, waitId: "w",
+    });
+    const processor = getProcessor();
+    await processor(messageJob(""));
+
+    expect(mockQueueAdd).toHaveBeenCalledWith(
+      "process-step", expect.objectContaining({ index: 1 }), expect.objectContaining({ delay: 900_000 })
+    );
+  });
+
+  it("does nothing with a voice note when no sequence is waiting", async () => {
+    const processor = getProcessor();
+    await processor(messageJob(""));
+
+    expect(mockPrisma.automation.findMany).not.toHaveBeenCalled();
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+    expect(mockConvo.inbound.has("ig_456:commenter_999")).toBe(true);
+  });
+
+  it("falls back to keyword campaigns when the waiting campaign was paused", async () => {
+    mockConvo.waits.set("ig_456:commenter_999", {
+      automationId: "auto_789", branchId: "main", index: 0, runId: "1", commenterName: null, waitId: "w",
+    });
+    mockPrisma.automation.findFirst.mockResolvedValue(null);
+    const processor = getProcessor();
+    await processor(messageJob("hola"));
+
+    expect(mockPrisma.automation.findMany).toHaveBeenCalled();
+  });
+
+  it("after sending, parks the next step and queues its reminders", async () => {
+    const processor = getProcessor();
+    await processor(stepJob({ index: 0 }));
+
+    expect(mockSendDirectMessageAttachment).toHaveBeenCalledWith(
+      "decrypted_token", "ig_456", "commenter_999", "audio", "https://cdn.test/1.m4a"
+    );
+    const wait = mockConvo.waits.get("ig_456:commenter_999") as { index: number; waitId: string };
+    expect(wait.index).toBe(1);
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+    expect(mockQueueAdd).toHaveBeenCalledWith(
+      "process-step",
+      expect.objectContaining({ index: 1, reminder: { index: 0, waitId: wait.waitId } }),
+      expect.objectContaining({ delay: 7_200_000 })
+    );
+  });
+
+  it("sends a reminder only while that wait is still open", async () => {
+    mockConvo.waits.set("ig_456:commenter_999", {
+      automationId: "auto_789", branchId: "main", index: 1, runId: "1", commenterName: null, waitId: "w1",
+    });
+    const processor = getProcessor();
+    await processor(stepJob({ index: 1, reminder: { index: 0, waitId: "w1" } }));
+    expect(mockSendDirectMessage).toHaveBeenCalledWith(
+      "decrypted_token", "ig_456", "commenter_999", "ey, ¿pudiste escucharlo?"
+    );
+    expect(mockSendDirectMessageAttachment).not.toHaveBeenCalled();
+
+    mockSendDirectMessage.mockClear();
+    mockConvo.waits.clear();
+    await processor(stepJob({ index: 1, reminder: { index: 0, waitId: "w1" } }));
+    expect(mockSendDirectMessage).not.toHaveBeenCalled();
+  });
+
+  it("skips a follow-up when they wrote after the previous message", async () => {
+    mockConvo.inbound.set("ig_456:commenter_999", 2_000);
+    const processor = getProcessor();
+    await processor(stepJob({ index: 3, prevSentAt: 1_000 }));
+    expect(mockSendDirectMessage).not.toHaveBeenCalled();
+  });
+
+  it("sends the follow-up when they haven't written since", async () => {
+    mockConvo.inbound.set("ig_456:commenter_999", 500);
+    const processor = getProcessor();
+    await processor(stepJob({ index: 3, prevSentAt: 1_000 }));
+    expect(mockSendDirectMessage).toHaveBeenCalledWith(
+      "decrypted_token", "ig_456", "commenter_999", "msg seg"
+    );
   });
 });

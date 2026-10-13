@@ -200,12 +200,15 @@ export function parseMessageEvents(
         continue;
       }
 
-      const text = message.text?.trim();
+      // A voice note, photo or sticker has no text but still counts as a reply
+      // for sequences waiting on one; keyword triggers ignore it.
+      const text = message.text?.trim() ?? "";
       const messageId = message.mid;
       const senderId = messaging.sender?.id;
       const accountId = entry.id ?? messaging.recipient?.id;
 
-      if (!text || !messageId || !senderId || !accountId) continue;
+      if (!text && !message.attachments?.length) continue;
+      if (!messageId || !senderId || !accountId) continue;
       // Ignore anything the connected account sent to itself.
       if (senderId === accountId) continue;
 

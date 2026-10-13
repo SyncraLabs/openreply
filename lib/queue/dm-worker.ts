@@ -49,7 +49,15 @@ import {
   getBranchSteps,
   parseBranchPayload,
   parseSequence,
+  type SequenceStep,
 } from "@/lib/sequence";
+import {
+  getLastInbound,
+  getWait,
+  recordInbound,
+  setWait,
+  takeWait,
+} from "./conversation";
 import {
   buildTrackedUrl,
   renderMessageWithTracking,
@@ -794,6 +802,17 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       throw error;
     }
 
+    // A sequence that opens by waiting for a reply can start from the private
+    // reply: nothing more goes out until the person writes back, which is what
+    // opens Instagram's window. Any other sequence still starts once a link is
+    // delivered by DM, as before.
+    if (!useOpeningDm && !sendFollowPrompt) {
+      const first = getBranchSteps(parseSequence(automation.sequence), MAIN_BRANCH)[0];
+      if (first?.waitForReply) {
+        await startSequence(automation, commenterId, commenterName ?? null);
+      }
+    }
+
     await postPublicReply();
   }
 }
@@ -1124,7 +1143,7 @@ async function startSequence(
   // Called right after the link went out: a queue error here must not mark
   // that delivered link as failed (and re-send it on retry).
   try {
-    await enqueueStep(
+    await scheduleStep(
       {
         instagramAccountId: automation.instagramAccount.instagramId,
         userId,
@@ -1133,12 +1152,79 @@ async function startSequence(
         index: 0,
         runId: branchId === MAIN_BRANCH ? "1" : Date.now().toString(36),
         commenterName,
+        prevSentAt: Date.now(),
       },
-      steps[0].delaySeconds
+      steps[0]
     );
   } catch (error) {
     console.error("[DM Worker] Could not start sequence:", formatError(error));
   }
+}
+
+/**
+ * Queue a step, or park it until the person writes back when it waits for a
+ * reply (processMessage resumes it). Reminders are queued with the wait and
+ * stay quiet once it is gone.
+ */
+async function scheduleStep(data: ProcessStepJob, step: SequenceStep) {
+  if (!step.waitForReply) {
+    await enqueueStep(data, step.delaySeconds);
+    return;
+  }
+  const waitId = `${data.runId}-${data.index}-${Date.now().toString(36)}`;
+  await setWait(data.instagramAccountId, data.userId, {
+    automationId: data.automationId,
+    branchId: data.branchId,
+    index: data.index,
+    runId: data.runId,
+    commenterName: data.commenterName ?? null,
+    waitId,
+  });
+  for (const [i, reminder] of step.reminders.entries()) {
+    await getDMQueue().add(
+      STEP_JOB_NAME,
+      { ...data, reminder: { index: i, waitId } },
+      {
+        delay: reminder.afterSeconds * 1000,
+        jobId: `reminder_${data.automationId}_${data.userId}_${waitId}_${i}`,
+      }
+    );
+  }
+}
+
+/**
+ * An inbound message from someone whose sequence is waiting on them: queue the
+ * held step, counting its wait from now. Returns whether one was resumed, in
+ * which case the message is their answer and no keyword campaign reacts to it.
+ */
+async function resumeWaitingSequence(instagramAccountId: string, userId: string): Promise<boolean> {
+  const wait = await takeWait(instagramAccountId, userId);
+  if (!wait) return false;
+
+  const automation = await prisma.automation.findFirst({
+    where: { id: wait.automationId, isActive: true },
+    include: { instagramAccount: true },
+  });
+  if (!automation || automation.instagramAccount.instagramId !== instagramAccountId) {
+    return false;
+  }
+  const step = getBranchSteps(parseSequence(automation.sequence), wait.branchId)[wait.index];
+  if (!step) return false;
+
+  await enqueueStep(
+    {
+      instagramAccountId,
+      userId,
+      automationId: wait.automationId,
+      branchId: wait.branchId,
+      index: wait.index,
+      runId: wait.runId,
+      commenterName: wait.commenterName,
+      prevSentAt: Date.now(),
+    },
+    step.delaySeconds
+  );
+  return true;
 }
 
 async function enqueueStep(data: ProcessStepJob, delaySeconds: number) {
@@ -1181,7 +1267,34 @@ async function processStep(job: Job<ProcessStepJob>): Promise<void> {
     return;
   }
 
-  try {
+  const { reminder } = job.data;
+  if (reminder) {
+    // Only while that same wait is still open: they haven't written yet.
+    const wait = await getWait(instagramAccountId, userId);
+    const nudge = step.reminders[reminder.index];
+    if (!wait || wait.waitId !== reminder.waitId || !nudge) return;
+    try {
+      await sendDirectMessage(
+        accessToken,
+        instagramAccountId,
+        userId,
+        renderMessageWithoutLink({ message: nudge.text, commenterName })
+      );
+    } catch (error) {
+      console.log("[DM Worker] Reminder not delivered:", formatError(error));
+    }
+    return;
+  }
+
+  // A follow-up for someone who already wrote back: the conversation is going,
+  // so leave it to the account owner and move on.
+  let skipped = false;
+  if (step.skipIfReplied && job.data.prevSentAt) {
+    const lastInbound = await getLastInbound(instagramAccountId, userId);
+    skipped = lastInbound !== null && lastInbound > job.data.prevSentAt;
+  }
+
+  if (!skipped) try {
     if (step.type !== "text") {
       await sendDirectMessageAttachment(
         accessToken,
@@ -1225,7 +1338,14 @@ async function processStep(job: Job<ProcessStepJob>): Promise<void> {
   const next = steps[index + 1];
   if (next) {
     try {
-      await enqueueStep({ ...job.data, index: index + 1 }, next.delaySeconds);
+      await scheduleStep(
+        {
+          ...job.data,
+          index: index + 1,
+          prevSentAt: skipped ? job.data.prevSentAt : Date.now(),
+        },
+        next
+      );
     } catch (error) {
       console.error("[DM Worker] Could not queue next sequence message:", formatError(error));
     }
@@ -1291,6 +1411,20 @@ async function processFollowUp(job: Job<ProcessFollowUpJob>): Promise<void> {
 async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
   const { instagramAccountId, messageId, messageText, senderId } = job.data;
   const { scheduledAutomationId } = job.data;
+
+  // The first run of a message (not a delayed re-run of a trigger): note that
+  // they wrote, and let it answer a sequence that is waiting on them.
+  if (!scheduledAutomationId) {
+    try {
+      await recordInbound(instagramAccountId, senderId);
+      if (await resumeWaitingSequence(instagramAccountId, senderId)) return;
+    } catch (error) {
+      console.error("[DM Worker] Could not check a waiting sequence:", formatError(error));
+    }
+  }
+
+  // A voice note or photo answers a waiting sequence but triggers nothing else.
+  if (!messageText) return;
 
   const automations = await prisma.automation.findMany({
     where: {

@@ -80,6 +80,11 @@ export interface ProcessStepJob {
   // run per user, each branch button tap starts a new one.
   runId: string;
   commenterName?: string | null;
+  // When the previous message of this run went out (ms). `skipIfReplied`
+  // compares the person's last message against it.
+  prevSentAt?: number;
+  // Set on a nudge sent while step `index` waits for a reply.
+  reminder?: { index: number; waitId: string };
 }
 
 export type DmQueueJob =

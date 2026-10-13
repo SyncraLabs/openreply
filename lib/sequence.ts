@@ -34,6 +34,24 @@ const stepSchema = z
     // Wait before this message, counted from the previous one.
     delaySeconds: z.number().int().min(0).max(86400).default(0),
     buttons: z.array(buttonSchema).max(3, "Max 3 buttons per message").default([]),
+    // Hold this message until the person writes back (text, voice note,
+    // anything). The wait above then counts from their reply.
+    waitForReply: z.boolean().default(false),
+    // Nudges sent while waiting for that reply, timed from the start of the
+    // wait. Cancelled as soon as they write. Instagram only delivers them if
+    // the person wrote in the last 24 hours.
+    reminders: z
+      .array(
+        z.object({
+          afterSeconds: z.number().int().min(60).max(86400),
+          text: z.string().trim().min(1, "A reminder can't be empty").max(1000),
+        })
+      )
+      .max(3, "Max 3 reminders per message")
+      .default([]),
+    // Don't send this message if the person wrote after the previous one, so a
+    // follow-up never lands in a conversation that is already going.
+    skipIfReplied: z.boolean().default(false),
   })
   .refine((s) => s.type !== "text" || s.text.trim().length > 0, {
     message: "A text message can't be empty",
@@ -43,6 +61,9 @@ const stepSchema = z
   })
   .refine((s) => s.type === "text" || s.buttons.length === 0, {
     message: "Only text messages can have buttons",
+  })
+  .refine((s) => s.waitForReply || s.reminders.length === 0, {
+    message: "Reminders only apply to a message that waits for a reply",
   })
   // Instagram's button template caps its text at 640 characters.
   .refine((s) => s.buttons.length === 0 || s.text.length <= 640, {

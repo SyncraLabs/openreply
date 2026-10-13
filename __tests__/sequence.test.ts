@@ -78,3 +78,24 @@ describe("helpers", () => {
     expect(getBranchSteps(seq, "zzz")).toEqual([]);
   });
 });
+
+describe("sequenceSchema — waiting for a reply", () => {
+  it("defaults the new fields to off", () => {
+    const r = sequenceSchema.parse({ main: [text("a")] });
+    expect(r.main[0]).toMatchObject({ waitForReply: false, reminders: [], skipIfReplied: false });
+  });
+
+  it("accepts reminders on a step that waits", () => {
+    const r = sequenceSchema.safeParse({
+      main: [text("a", { waitForReply: true, reminders: [{ afterSeconds: 7200, text: "¿lo viste?" }] })],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects reminders on a step that doesn't wait", () => {
+    const r = sequenceSchema.safeParse({
+      main: [text("a", { reminders: [{ afterSeconds: 7200, text: "¿lo viste?" }] })],
+    });
+    expect(r.success).toBe(false);
+  });
+});
