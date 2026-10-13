@@ -35,6 +35,9 @@ interface Campaign {
   followPromptMessage: string | null;
   followPromptButtonLabel: string | null;
   isActive: boolean;
+  // Set when a newer campaign took over the post: no new comments, only
+  // finishing what it already started.
+  retiredAt: string | null;
   wholeWordMatch: boolean;
   instagramAccountId: string;
   instagramAccount: {
@@ -464,12 +467,17 @@ export default function CampaignsPage() {
                   </span>
                   <span
                     className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                      auto.isActive
+                      auto.isActive && !auto.retiredAt
                         ? "bg-success/10 text-success"
                         : "bg-zinc-500/10 text-muted"
                     }`}
+                    title={auto.retiredAt ? t("camp.retiredHint") : undefined}
                   >
-                    {auto.isActive ? t("camp.active") : t("camp.paused")}
+                    {auto.retiredAt
+                      ? t("camp.retired")
+                      : auto.isActive
+                        ? t("camp.active")
+                        : t("camp.paused")}
                   </span>
                   {auto.pendingNextReel && (
                     <span className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-warning">
