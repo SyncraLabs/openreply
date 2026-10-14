@@ -85,6 +85,9 @@ export interface ProcessStepJob {
   prevSentAt?: number;
   // Set on a nudge sent while step `index` waits for a reply.
   reminder?: { index: number; waitId: string };
+  // On a step resumed by a reply: when its wait began, so its reply routes
+  // read everything written since.
+  repliesSince?: number;
 }
 
 export type DmQueueJob =

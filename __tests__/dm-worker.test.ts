@@ -27,6 +27,7 @@ const {
   mockConvo: {
     inbound: new Map<string, number>(),
     waits: new Map<string, Record<string, unknown>>(),
+    messages: new Map<string, { at: number; text: string }[]>(),
   },
   mockPrisma: {
     automation: {
@@ -128,9 +129,12 @@ vi.mock("@/lib/billing/usage", () => ({
 }));
 
 vi.mock("../lib/queue/conversation", () => ({
-  recordInbound: async (a: string, u: string, at = Date.now()) => {
+  recordInbound: async (a: string, u: string, at = Date.now(), text = "") => {
     mockConvo.inbound.set(`${a}:${u}`, at);
+    if (text) mockConvo.messages.set(`${a}:${u}`, [...(mockConvo.messages.get(`${a}:${u}`) ?? []), { at, text }]);
   },
+  getMessagesSince: async (a: string, u: string, since: number) =>
+    (mockConvo.messages.get(`${a}:${u}`) ?? []).filter((m) => m.at >= since).map((m) => m.text),
   getLastInbound: async (a: string, u: string) => mockConvo.inbound.get(`${a}:${u}`) ?? null,
   setWait: async (a: string, u: string, w: Record<string, unknown>) => {
     mockConvo.waits.set(`${a}:${u}`, w);
@@ -255,6 +259,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockConvo.inbound.clear();
   mockConvo.waits.clear();
+  mockConvo.messages.clear();
 
   mockPrisma.automation.findMany.mockResolvedValue([mockAutomation]);
   mockPrisma.automation.findFirst.mockResolvedValue(null);
@@ -1801,5 +1806,100 @@ describe("DM Worker — sequences that wait for a reply", () => {
     expect(mockSendDirectMessage).toHaveBeenCalledWith(
       "decrypted_token", "ig_456", "commenter_999", "msg seg"
     );
+  });
+});
+
+describe("DM Worker — reply routes", () => {
+  const step = (id: string, extra: Record<string, unknown> = {}) => ({
+    id, type: "text", text: `msg ${id}`, mediaUrl: null, delaySeconds: 0, buttons: [],
+    waitForReply: false, reminders: [], skipIfReplied: false, routes: [], ...extra,
+  });
+  const sequence = {
+    main: [
+      step("offer", {
+        type: "audio", text: "", mediaUrl: "https://cdn.test/offer.m4a", delaySeconds: 900, waitForReply: true,
+        routes: [
+          { keywords: ["no tengo dinero", "no puedo pagar"], branchId: "broke" },
+          { keywords: ["precio", "cuanto cuesta"], branchId: "price" },
+        ],
+      }),
+      step("link"),
+    ],
+    branches: [
+      { id: "broke", name: "Sin dinero", qualified: false, steps: [step("b1", { delaySeconds: 5 })] },
+      { id: "price", name: "Precio", qualified: true, steps: [step("p1", { delaySeconds: 5 })] },
+    ],
+  };
+  const routed = { ...mockAutomation, sequence, requireFollow: false };
+
+  function dueStep(repliesSince?: number) {
+    return {
+      name: "process-step",
+      data: {
+        instagramAccountId: "ig_456", userId: "commenter_999", automationId: "auto_789",
+        branchId: "main", index: 0, runId: "1", commenterName: null, prevSentAt: 2_000, repliesSince,
+      },
+      id: "s",
+      attemptsMade: 0,
+    };
+  }
+
+  beforeEach(() => {
+    mockPrisma.automation.findFirst.mockResolvedValue(routed);
+    mockSendDirectMessageAttachment.mockResolvedValue({});
+  });
+
+  it("starts the branch whose keyword they wrote during the wait, across messages and accents", async () => {
+    mockConvo.messages.set("ig_456:commenter_999", [
+      { at: 500, text: "¿Cuánto cuesta?" }, // before the wait: ignored
+      { at: 1_500, text: "Si" },
+      { at: 1_600, text: "Me interesa, pero ¿CUÁNTO cuesta?" },
+    ]);
+    const processor = getProcessor();
+    await processor(dueStep(1_000));
+
+    expect(mockSendDirectMessageAttachment).not.toHaveBeenCalled();
+    expect(mockQueueAdd).toHaveBeenCalledWith(
+      "process-step",
+      expect.objectContaining({ branchId: "price", index: 0 }),
+      expect.objectContaining({ delay: 5_000 })
+    );
+  });
+
+  it("uses the first route that matches", async () => {
+    mockConvo.messages.set("ig_456:commenter_999", [
+      { at: 1_500, text: "cuanto cuesta? es que no tengo dinero" },
+    ]);
+    const processor = getProcessor();
+    await processor(dueStep(1_000));
+    expect(mockQueueAdd).toHaveBeenCalledWith(
+      "process-step", expect.objectContaining({ branchId: "broke" }), expect.anything()
+    );
+  });
+
+  it("sends the message as usual when nothing matches or they sent a voice note", async () => {
+    mockConvo.messages.set("ig_456:commenter_999", [{ at: 1_500, text: "tengo 20 años y quiero empezar" }]);
+    const processor = getProcessor();
+    await processor(dueStep(1_000));
+    expect(mockSendDirectMessageAttachment).toHaveBeenCalledWith(
+      "decrypted_token", "ig_456", "commenter_999", "audio", "https://cdn.test/offer.m4a"
+    );
+  });
+
+  it("keeps the wait's start so routes read the reply that resumed it", async () => {
+    mockConvo.waits.set("ig_456:commenter_999", {
+      automationId: "auto_789", branchId: "main", index: 0, runId: "1", commenterName: null, waitId: "w", startedAt: 1_000,
+    });
+    const processor = getProcessor();
+    await processor({
+      name: "process-message",
+      data: { instagramAccountId: "ig_456", messageId: "mid_p", messageText: "precio?", senderId: "commenter_999" },
+      id: "m",
+      attemptsMade: 0,
+    });
+    expect(mockQueueAdd).toHaveBeenCalledWith(
+      "process-step", expect.objectContaining({ index: 0, repliesSince: 1_000 }), expect.anything()
+    );
+    expect(mockConvo.messages.get("ig_456:commenter_999")?.[0].text).toBe("precio?");
   });
 });

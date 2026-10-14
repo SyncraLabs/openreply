@@ -48,11 +48,13 @@ import {
   branchPayload,
   getBranchSteps,
   parseBranchPayload,
+  matchReplyRoute,
   parseSequence,
   type SequenceStep,
 } from "@/lib/sequence";
 import {
   getLastInbound,
+  getMessagesSince,
   getWait,
   recordInbound,
   setWait,
@@ -1188,6 +1190,7 @@ async function scheduleStep(data: ProcessStepJob, step: SequenceStep) {
     runId: data.runId,
     commenterName: data.commenterName ?? null,
     waitId,
+    startedAt: Date.now(),
   });
   for (const [i, reminder] of step.reminders.entries()) {
     await getDMQueue().add(
@@ -1230,6 +1233,7 @@ async function resumeWaitingSequence(instagramAccountId: string, userId: string)
       runId: wait.runId,
       commenterName: wait.commenterName,
       prevSentAt: Date.now(),
+      repliesSince: wait.startedAt,
     },
     step.delaySeconds
   );
@@ -1293,6 +1297,17 @@ async function processStep(job: Job<ProcessStepJob>): Promise<void> {
       console.log("[DM Worker] Reminder not delivered:", formatError(error));
     }
     return;
+  }
+
+  // What they wrote while this message waited can send them down a branch
+  // (price question, no budget...) instead of this message.
+  if (step.routes.length > 0 && job.data.repliesSince) {
+    const replies = await getMessagesSince(instagramAccountId, userId, job.data.repliesSince);
+    const branchId = matchReplyRoute(step.routes, replies.join("\n"));
+    if (branchId) {
+      await startSequence(automation, userId, commenterName, branchId);
+      return;
+    }
   }
 
   // A follow-up for someone who already wrote back: the conversation is going,
@@ -1425,7 +1440,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
   // they wrote, and let it answer a sequence that is waiting on them.
   if (!scheduledAutomationId) {
     try {
-      await recordInbound(instagramAccountId, senderId);
+      await recordInbound(instagramAccountId, senderId, Date.now(), messageText);
       if (await resumeWaitingSequence(instagramAccountId, senderId)) return;
     } catch (error) {
       console.error("[DM Worker] Could not check a waiting sequence:", formatError(error));

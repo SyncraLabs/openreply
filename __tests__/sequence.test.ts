@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   branchPayload,
+  matchReplyRoute,
   getBranchSteps,
   parseBranchPayload,
   parseSequence,
@@ -95,6 +96,30 @@ describe("sequenceSchema — waiting for a reply", () => {
   it("rejects reminders on a step that doesn't wait", () => {
     const r = sequenceSchema.safeParse({
       main: [text("a", { reminders: [{ afterSeconds: 7200, text: "¿lo viste?" }] })],
+    });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe("reply routes", () => {
+  const routes = [
+    { keywords: ["no tengo dinero"], branchId: "broke" },
+    { keywords: ["precio", "timo"], branchId: "price" },
+  ];
+
+  it("matches whole words and phrases, ignoring case and accents", () => {
+    expect(matchReplyRoute(routes, "Hola, ¿qué PRECIO tiene?")).toBe("price");
+    expect(matchReplyRoute(routes, "es que NO tengo dinero ahora")).toBe("broke");
+  });
+
+  it("does not match inside other words", () => {
+    expect(matchReplyRoute(routes, "preciosa la idea")).toBeNull();
+    expect(matchReplyRoute(routes, "timon")).toBeNull();
+  });
+
+  it("rejects a route to a branch that doesn't exist", () => {
+    const r = sequenceSchema.safeParse({
+      main: [text("a", { waitForReply: true, routes: [{ keywords: ["x"], branchId: "nope" }] })],
     });
     expect(r.success).toBe(false);
   });

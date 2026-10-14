@@ -14,14 +14,41 @@ export interface SequenceWait {
   commenterName: string | null;
   // Tells this wait apart from a later one, so a stale reminder stays quiet.
   waitId: string;
+  // When the wait began (ms): their messages from then on are their answer.
+  startedAt?: number;
 }
 
 const inboundKey = (account: string, user: string) => `convo:in:${account}:${user}`;
 const waitKey = (account: string, user: string) => `convo:wait:${account}:${user}`;
 
-/** Remember when this person last wrote to the account. */
-export async function recordInbound(account: string, user: string, at = Date.now()) {
-  await getRedisConnection().set(inboundKey(account, user), String(at), "EX", TTL_SECONDS);
+const messagesKey = (account: string, user: string) => `convo:msgs:${account}:${user}`;
+
+/** Remember when this person last wrote to the account, and what. */
+export async function recordInbound(
+  account: string,
+  user: string,
+  at = Date.now(),
+  text = ""
+) {
+  const redis = getRedisConnection();
+  await redis.set(inboundKey(account, user), String(at), "EX", TTL_SECONDS);
+  if (!text) return;
+  const key = messagesKey(account, user);
+  await redis
+    .multi()
+    .rpush(key, JSON.stringify({ at, text: text.slice(0, 2000) }))
+    .ltrim(key, -20, -1)
+    .expire(key, TTL_SECONDS)
+    .exec();
+}
+
+/** Their text messages since a moment, oldest first. */
+export async function getMessagesSince(account: string, user: string, since: number): Promise<string[]> {
+  const raw = await getRedisConnection().lrange(messagesKey(account, user), 0, -1);
+  return raw
+    .map((r) => JSON.parse(r) as { at: number; text: string })
+    .filter((m) => m.at >= since)
+    .map((m) => m.text);
 }
 
 export async function getLastInbound(account: string, user: string): Promise<number | null> {

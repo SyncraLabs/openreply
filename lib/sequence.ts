@@ -52,6 +52,19 @@ const stepSchema = z
     // Don't send this message if the person wrote after the previous one, so a
     // follow-up never lands in a conversation that is already going.
     skipIfReplied: z.boolean().default(false),
+    // On a message that waits for a reply: when it is due, read everything the
+    // person wrote during the wait and, if it contains one of a route's
+    // keywords, start that branch instead. First matching route wins; no match
+    // sends this message as usual.
+    routes: z
+      .array(
+        z.object({
+          keywords: z.array(z.string().trim().min(1)).min(1, "A route needs a keyword").max(50),
+          branchId: idSchema,
+        })
+      )
+      .max(10)
+      .default([]),
   })
   .refine((s) => s.type !== "text" || s.text.trim().length > 0, {
     message: "A text message can't be empty",
@@ -101,6 +114,11 @@ export const sequenceSchema = z
         });
       }
       for (const step of steps) {
+        for (const route of step.routes) {
+          if (!branchIds.has(route.branchId)) {
+            ctx.addIssue({ code: "custom", message: "A reply route points to a branch that doesn't exist" });
+          }
+        }
         for (const button of step.buttons) {
           if ("branchId" in button && !branchIds.has(button.branchId)) {
             ctx.addIssue({
@@ -149,4 +167,32 @@ export function parseBranchPayload(
     .slice(BRANCH_PAYLOAD_PREFIX.length)
     .split(":");
   return automationId && branchId ? { automationId, branchId } : null;
+}
+
+/** Lowercase, no accents, words separated by single spaces. */
+function normalizeForRoutes(text: string): string {
+  return ` ${text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9$€]+/g, " ")
+    .trim()} `;
+}
+
+/**
+ * The branch a reply routes to: the first route with a keyword (a word or a
+ * phrase, accents and case ignored) found as whole words in the text.
+ */
+export function matchReplyRoute(
+  routes: SequenceStep["routes"],
+  text: string
+): string | null {
+  const haystack = normalizeForRoutes(text);
+  for (const route of routes) {
+    for (const keyword of route.keywords) {
+      const needle = normalizeForRoutes(keyword);
+      if (needle.trim() && haystack.includes(needle)) return route.branchId;
+    }
+  }
+  return null;
 }

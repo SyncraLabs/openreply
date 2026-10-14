@@ -33,7 +33,7 @@ function newId(): string {
 function newStep(): SequenceStep {
   return {
     id: newId(), type: "text", text: "", mediaUrl: null, delaySeconds: 60, buttons: [],
-    waitForReply: false, reminders: [], skipIfReplied: false,
+    waitForReply: false, reminders: [], skipIfReplied: false, routes: [],
   };
 }
 
