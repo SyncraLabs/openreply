@@ -35,6 +35,18 @@ interface Campaign {
   followPromptMessage: string | null;
   followPromptButtonLabel: string | null;
   isActive: boolean;
+  // Copied as-is when duplicating, so the copy behaves exactly like the original.
+  dmTriggerEnabled: boolean;
+  linkButtonLabel: string | null;
+  followUpEnabled: boolean;
+  followUpMessage: string | null;
+  followUpDelayMinutes: number;
+  sendDelayMinSeconds: number;
+  sendDelayMaxSeconds: number;
+  sendWindowStart: number | null;
+  sendWindowEnd: number | null;
+  sendWindowTimezone: string;
+  sequence: unknown;
   // Set when a newer campaign took over the post: no new comments, only
   // finishing what it already started.
   retiredAt: string | null;
@@ -275,6 +287,21 @@ export default function CampaignsPage() {
           followPromptMessage: auto.followPromptMessage,
           followPromptButtonLabel: auto.followPromptButtonLabel,
           wholeWordMatch: auto.wholeWordMatch,
+          // Everything else the campaign does: its message sequence (audios,
+          // waits, reminders), timing, follow-up and DM trigger.
+          goal: auto.goal,
+          dmTriggerEnabled: auto.dmTriggerEnabled,
+          linkButtonLabel: auto.linkButtonLabel,
+          followUpEnabled: auto.followUpEnabled,
+          followUpMessage: auto.followUpMessage,
+          followUpDelayMinutes: auto.followUpDelayMinutes,
+          publicReplyMessage: auto.publicReplyMessage,
+          sendDelayMinSeconds: auto.sendDelayMinSeconds,
+          sendDelayMaxSeconds: auto.sendDelayMaxSeconds,
+          sendWindowStart: auto.sendWindowStart,
+          sendWindowEnd: auto.sendWindowEnd,
+          sendWindowTimezone: auto.sendWindowTimezone,
+          sequence: auto.sequence ?? null,
           isActive: false,
         }),
       });
