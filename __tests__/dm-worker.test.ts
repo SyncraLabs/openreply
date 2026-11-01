@@ -22,7 +22,18 @@ const {
   mockClaimSend,
   mockReleaseSend,
   mockConvo,
+  mockSetter,
 } = vi.hoisted(() => ({
+  // Stand-in for the AI setter's Redis state and model call.
+  mockSetter: {
+    getSetter: vi.fn(),
+    startSetter: vi.fn(),
+    addSetterTurn: vi.fn(),
+    pauseSetter: vi.fn(),
+    countSetterReply: vi.fn(),
+    takeDailyCall: vi.fn(),
+    askSetter: vi.fn(),
+  },
   // In-memory stand-in for the Redis conversation state.
   mockConvo: {
     inbound: new Map<string, number>(),
@@ -147,6 +158,11 @@ vi.mock("../lib/queue/conversation", () => ({
   },
 }));
 
+vi.mock("../lib/queue/setter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/queue/setter")>();
+  return { ...mockSetter, renderSetterMessages: actual.renderSetterMessages };
+});
+
 vi.mock("@/lib/ops/worker-health", () => ({
   recordWorkerAlert: vi.fn(),
 }));
@@ -160,6 +176,7 @@ vi.mock("@/lib/queue/client", () => ({
   FOLLOWUP_JOB_NAME: "process-followup",
   MESSAGE_JOB_NAME: "process-message",
   STEP_JOB_NAME: "process-step",
+  SETTER_JOB_NAME: "process-setter",
 }));
 
 vi.mock("bullmq", () => {
@@ -1901,5 +1918,97 @@ describe("DM Worker — reply routes", () => {
       "process-step", expect.objectContaining({ index: 0, repliesSince: 1_000 }), expect.anything()
     );
     expect(mockConvo.messages.get("ig_456:commenter_999")?.[0].text).toBe("precio?");
+  });
+});
+
+describe("DM Worker — AI setter", () => {
+  const setterSequence = {
+    main: [],
+    branches: [],
+    setter: { brief: "soy rodrigo", links: { agenda: "https://agenda.test/x" }, maxReplies: 12 },
+  };
+  const setterAutomation = {
+    ...mockAutomation,
+    sequence: setterSequence,
+    instagramAccount: { ...mockAutomation.instagramAccount, instagramId: "ig_456" },
+  };
+  const state = (turns: { from: "tu" | "lead"; text: string }[], status = "active") => ({
+    automationId: "auto_789",
+    commenterName: null,
+    status,
+    replies: 0,
+    turns: turns.map((t) => ({ ...t, at: 1 })),
+  });
+  const setterJob = { name: "process-setter", data: { instagramAccountId: "ig_456", userId: "u1" }, id: "s", attemptsMade: 0 };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockConvo.waits.clear();
+    mockConvo.messages.clear();
+    mockDecryptToken.mockReturnValue("decrypted_token");
+    mockSetter.countSetterReply.mockResolvedValue(1);
+    mockSetter.takeDailyCall.mockResolvedValue(true);
+    mockPrisma.automation.findFirst.mockResolvedValue(setterAutomation);
+    createDMWorker();
+  });
+
+  it("queues one delayed answer for a message in a setter conversation, and nothing else reacts", async () => {
+    mockSetter.getSetter.mockResolvedValue(state([{ from: "tu", text: "es así?" }]));
+    mockConvo.waits.set("ig_456:u1", { automationId: "auto_789", branchId: "main", index: 0, runId: "1", waitId: "w" });
+    await getProcessor()({
+      name: "process-message",
+      data: { instagramAccountId: "ig_456", messageId: "m1", messageText: "sii", senderId: "u1" },
+      id: "m",
+      attemptsMade: 0,
+    });
+    expect(mockSetter.addSetterTurn).toHaveBeenCalledWith("ig_456", "u1", "lead", "sii");
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+    expect(mockQueueAdd).toHaveBeenCalledWith(
+      "process-setter",
+      { instagramAccountId: "ig_456", userId: "u1" },
+      expect.objectContaining({ jobId: "setter_ig_456_u1_0" })
+    );
+    expect(mockConvo.waits.has("ig_456:u1")).toBe(true);
+  });
+
+  it("sends what the model wrote with the link filled in, and marks the lead", async () => {
+    mockSetter.getSetter.mockResolvedValue(state([{ from: "tu", text: "es así?" }, { from: "lead", text: "sí, puedo invertir" }]));
+    mockSetter.askSetter.mockResolvedValue({ mensajes: ["perfecto", "coge hueco aquí {agenda}"], siguiente: "agenda", motivo: "puede" });
+    vi.useFakeTimers();
+    const run = getProcessor()(setterJob);
+    await vi.runAllTimersAsync();
+    await run;
+    vi.useRealTimers();
+    expect(mockSendDirectMessage).toHaveBeenNthCalledWith(1, "decrypted_token", "ig_456", "u1", "perfecto");
+    expect(mockSendDirectMessage).toHaveBeenNthCalledWith(2, "decrypted_token", "ig_456", "u1", "coge hueco aquí https://agenda.test/x");
+    expect(mockPrisma.sequenceChoice.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ update: expect.objectContaining({ branchId: "ia_agenda", qualified: true }) })
+    );
+  });
+
+  it("hands off without sending when the model asks for a human or invents a link", async () => {
+    mockSetter.getSetter.mockResolvedValue(state([{ from: "tu", text: "es así?" }, { from: "lead", text: "cuánto cuesta?" }]));
+    mockSetter.askSetter.mockResolvedValue({ mensajes: [], siguiente: "humano", motivo: "precio" });
+    await getProcessor()(setterJob);
+    mockSetter.askSetter.mockResolvedValue({ mensajes: ["mira https://otra.web"], siguiente: "seguir", motivo: "x" });
+    await getProcessor()(setterJob);
+    expect(mockSendDirectMessage).not.toHaveBeenCalled();
+    expect(mockSetter.pauseSetter).toHaveBeenCalledTimes(2);
+  });
+
+  it("hands off a voice note without calling the model", async () => {
+    mockSetter.getSetter.mockResolvedValue(state([{ from: "tu", text: "es así?" }, { from: "lead", text: "(ha mandado un audio, foto o archivo)" }]));
+    await getProcessor()(setterJob);
+    expect(mockSetter.askSetter).not.toHaveBeenCalled();
+    expect(mockSetter.pauseSetter).toHaveBeenCalled();
+  });
+
+  it("stays quiet once paused or when we spoke last", async () => {
+    mockSetter.getSetter.mockResolvedValue(state([{ from: "lead", text: "hola" }], "paused"));
+    await getProcessor()(setterJob);
+    mockSetter.getSetter.mockResolvedValue(state([{ from: "lead", text: "hola" }, { from: "tu", text: "dime" }]));
+    await getProcessor()(setterJob);
+    expect(mockSetter.askSetter).not.toHaveBeenCalled();
+    expect(mockSendDirectMessage).not.toHaveBeenCalled();
   });
 });

@@ -224,6 +224,35 @@ export function parseMessageEvents(
   return events;
 }
 
+export interface WebhookEchoEvent {
+  instagramAccountId: string;
+  userId: string;
+  text: string;
+}
+
+/**
+ * Messages the account itself sent (by hand in the app, or through the API).
+ * The AI setter uses them to step aside when the owner writes by hand.
+ */
+export function parseEchoEvents(payload: WebhookPayload): WebhookEchoEvent[] {
+  const events: WebhookEchoEvent[] = [];
+
+  if (payload.object !== "instagram") return events;
+
+  for (const entry of payload.entry ?? []) {
+    for (const messaging of entry.messaging ?? []) {
+      const message = messaging.message;
+      if (!message?.is_echo || message.is_deleted) continue;
+      const accountId = entry.id ?? messaging.sender?.id;
+      const userId = messaging.recipient?.id;
+      if (!accountId || !userId || userId === accountId) continue;
+      events.push({ instagramAccountId: accountId, userId, text: message.text?.trim() ?? "" });
+    }
+  }
+
+  return events;
+}
+
 /**
  * Parse Instagram DM read receipts. When a user reads an opening DM but does
  * not tap its button, the webhook route uses this to schedule the reveal after

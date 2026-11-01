@@ -90,7 +90,16 @@ export interface ProcessStepJob {
   repliesSince?: number;
 }
 
+// The AI setter's turn for one person (lib/queue/setter.ts). Delayed a few
+// minutes so it reads like a person answering, and so quick messages in a row
+// get one answer.
+export interface ProcessSetterJob {
+  instagramAccountId: string;
+  userId: string;
+}
+
 export type DmQueueJob =
+  | ProcessSetterJob
   | ProcessCommentJob
   | ProcessPostbackJob
   | ProcessFollowUpJob
@@ -101,6 +110,7 @@ export const POSTBACK_JOB_NAME = "process-postback";
 export const FOLLOWUP_JOB_NAME = "process-followup";
 export const MESSAGE_JOB_NAME = "process-message";
 export const STEP_JOB_NAME = "process-step";
+export const SETTER_JOB_NAME = "process-setter";
 
 let dmQueue: Queue<DmQueueJob> | null = null;
 

@@ -3,12 +3,14 @@ import { prisma } from "@/lib/db/client";
 import { getDMQueue } from "@/lib/queue/client";
 import {
   parseCommentEvents,
+  parseEchoEvents,
   parseMessageEvents,
   parsePostbackEvents,
   parseReadEvents,
   verifyWebhookSignature,
 } from "@/lib/meta/webhook";
 import { MESSAGE_JOB_NAME, POSTBACK_JOB_NAME } from "@/lib/queue/client";
+import { noteOwnerMessage } from "@/lib/queue/setter";
 import { Prisma } from "@/app/generated/prisma/client";
 
 const OPENING_DM_READ_FALLBACK_DELAY_MS = 5 * 60 * 1000;
@@ -174,6 +176,16 @@ export async function POST(request: NextRequest) {
           data: { workspaceId: account.workspaceId },
         });
       }
+    }
+
+    // The owner writing by hand to someone the AI setter is talking to: it
+    // steps aside. A failure here must not lose the rest of the webhook.
+    for (const event of parseEchoEvents(
+      payload as Parameters<typeof parseEchoEvents>[0]
+    )) {
+      await noteOwnerMessage(event.instagramAccountId, event.userId, event.text).catch(
+        (error) => console.error("[Webhook] Could not check echo for setter:", error)
+      );
     }
 
     // If a user reads the opening DM and never taps the button, deliver the

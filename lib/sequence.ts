@@ -94,10 +94,20 @@ const branchSchema = z.object({
 const totalDelay = (steps: { delaySeconds: number }[]) =>
   steps.reduce((sum, s) => sum + s.delaySeconds, 0);
 
+// Instead of fixed messages, an AI answers each reply in the account owner's
+// voice (lib/queue/setter.ts). `brief` is who they are, what they offer and
+// how they talk; `links` are the only URLs it may send, by name.
+const setterSchema = z.object({
+  brief: z.string().trim().min(1).max(12000),
+  links: z.record(z.string().regex(/^[a-z]{1,20}$/), z.string().url()).default({}),
+  maxReplies: z.number().int().min(1).max(30).default(12),
+});
+
 export const sequenceSchema = z
   .object({
     main: z.array(stepSchema).max(10).default([]),
     branches: z.array(branchSchema).max(10).default([]),
+    setter: setterSchema.optional(),
   })
   .superRefine((seq, ctx) => {
     const branchIds = new Set(seq.branches.map((b) => b.id));
@@ -134,6 +144,7 @@ export const sequenceSchema = z
 export type Sequence = z.infer<typeof sequenceSchema>;
 export type SequenceStep = Sequence["main"][number];
 export type SequenceButton = SequenceStep["buttons"][number];
+export type SetterConfig = z.infer<typeof setterSchema>;
 
 export const EMPTY_SEQUENCE: Sequence = { main: [], branches: [] };
 

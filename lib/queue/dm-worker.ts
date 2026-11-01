@@ -6,7 +6,9 @@ import {
   POSTBACK_JOB_NAME,
   FOLLOWUP_JOB_NAME,
   STEP_JOB_NAME,
+  SETTER_JOB_NAME,
   type DmQueueJob,
+  type ProcessSetterJob,
   type ProcessStepJob,
   type ProcessCommentJob,
   type ProcessMessageJob,
@@ -60,6 +62,16 @@ import {
   setWait,
   takeWait,
 } from "./conversation";
+import {
+  addSetterTurn,
+  askSetter,
+  countSetterReply,
+  getSetter,
+  pauseSetter,
+  renderSetterMessages,
+  startSetter,
+  takeDailyCall,
+} from "./setter";
 import {
   buildTrackedUrl,
   renderMessageWithTracking,
@@ -818,8 +830,22 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     // opens Instagram's window. Any other sequence still starts once a link is
     // delivered by DM, as before.
     if (!useOpeningDm && !sendFollowPrompt) {
-      const first = getBranchSteps(parseSequence(automation.sequence), MAIN_BRANCH)[0];
-      if (first?.waitForReply) {
+      const sequence = parseSequence(automation.sequence);
+      const first = getBranchSteps(sequence, MAIN_BRANCH)[0];
+      if (sequence.setter) {
+        // The AI answers from their first reply; the private reply is its opener.
+        try {
+          await startSetter(
+            automation.instagramAccount.instagramId,
+            commenterId,
+            automation.id,
+            commenterName ?? null,
+            renderMessageWithoutLink({ message: automation.dmMessage, commenterName })
+          );
+        } catch (error) {
+          console.error("[DM Worker] Could not start setter:", formatError(error));
+        }
+      } else if (first?.waitForReply) {
         await startSequence(automation, commenterId, commenterName ?? null);
       }
     }
@@ -1240,6 +1266,141 @@ async function resumeWaitingSequence(instagramAccountId: string, userId: string)
   return true;
 }
 
+/**
+ * A message from someone the AI setter is talking to: note it and queue its
+ * answer a few minutes out. Messages that arrive before it runs share that one
+ * answer (same job id). Returns whether the setter owns this conversation, in
+ * which case nothing else reacts to the message.
+ */
+async function queueSetterTurn(instagramAccountId: string, userId: string, text: string): Promise<boolean> {
+  const state = await getSetter(instagramAccountId, userId);
+  if (!state) return false;
+  await addSetterTurn(instagramAccountId, userId, "lead", text || "(ha mandado un audio, foto o archivo)");
+  if (state.status !== "active") return true;
+  const delay = (60 + Math.floor(Math.random() * 420)) * 1000;
+  await getDMQueue().add(
+    SETTER_JOB_NAME,
+    { instagramAccountId, userId },
+    { delay, jobId: `setter_${instagramAccountId}_${userId}_${state.replies}` }
+  );
+  return true;
+}
+
+/** Leave the conversation to the owner, and list it in Contacts. */
+async function handOffSetter(
+  automation: { id: string; workspaceId: string },
+  instagramAccountId: string,
+  userId: string,
+  reason: string
+) {
+  await pauseSetter(instagramAccountId, userId);
+  await recordSetterOutcome(automation, userId, "humano", reason);
+}
+
+const SETTER_OUTCOMES = {
+  agenda: { name: "IA: le pasé la agenda", qualified: true },
+  syncra: { name: "IA: tiene negocio (Syncra)", qualified: true },
+  skool: { name: "IA: Skool, ahora no", qualified: false },
+  humano: { name: "IA: te toca a ti", qualified: false },
+} as const;
+
+async function recordSetterOutcome(
+  automation: { id: string; workspaceId: string },
+  userId: string,
+  outcome: keyof typeof SETTER_OUTCOMES,
+  reason: string
+) {
+  const { name, qualified } = SETTER_OUTCOMES[outcome];
+  const answer = { branchId: `ia_${outcome}`, branchName: name, qualified };
+  try {
+    await prisma.sequenceChoice.upsert({
+      where: { automationId_userId: { automationId: automation.id, userId } },
+      create: { workspaceId: automation.workspaceId, automationId: automation.id, userId, ...answer },
+      update: answer,
+    });
+  } catch (error) {
+    console.error("[DM Worker] Could not record setter outcome:", formatError(error));
+  }
+  console.log(`[DM Worker] Setter ${userId}: ${outcome} (${reason})`);
+}
+
+/**
+ * The AI setter's turn: read the whole conversation, ask Claude, send what it
+ * wrote. Anything it can't handle (a voice note, an error, an unknown link, the
+ * reply cap) pauses it and leaves the person to the owner, never a guess.
+ */
+async function processSetter(job: Job<ProcessSetterJob>): Promise<void> {
+  const { instagramAccountId, userId } = job.data;
+  const state = await getSetter(instagramAccountId, userId);
+  if (!state || state.status !== "active") return;
+  // Only answer if they wrote after our last message.
+  if (state.turns[state.turns.length - 1]?.from !== "lead") return;
+
+  const automation = await prisma.automation.findFirst({
+    where: { id: state.automationId, isActive: true },
+    include: { instagramAccount: true },
+  });
+  const config = automation ? parseSequence(automation.sequence).setter : undefined;
+  if (
+    !automation ||
+    !config ||
+    automation.instagramAccount.instagramId !== instagramAccountId ||
+    !automation.instagramAccount.accessToken
+  ) {
+    return;
+  }
+
+  // Taken before anything else, so a message arriving now queues the next turn.
+  const replies = await countSetterReply(instagramAccountId, userId);
+  if (replies > config.maxReplies) {
+    return handOffSetter(automation, instagramAccountId, userId, "tope de respuestas");
+  }
+  const lastOurs = state.turns.map((t) => t.from).lastIndexOf("tu");
+  if (state.turns.slice(lastOurs + 1).some((t) => t.text.startsWith("(ha mandado"))) {
+    return handOffSetter(automation, instagramAccountId, userId, "audio o archivo");
+  }
+  if (!(await takeDailyCall(instagramAccountId))) {
+    return handOffSetter(automation, instagramAccountId, userId, "tope diario de IA");
+  }
+
+  let reply;
+  try {
+    reply = await askSetter(config, state.turns, state.commenterName);
+  } catch (error) {
+    console.error("[DM Worker] Setter call failed:", formatError(error));
+  }
+  if (!reply) return handOffSetter(automation, instagramAccountId, userId, "la IA no respondió");
+  if (reply.siguiente === "humano") {
+    return handOffSetter(automation, instagramAccountId, userId, reply.motivo);
+  }
+  const messages = renderSetterMessages(reply.mensajes, config.links);
+  if (!messages || messages.length === 0) {
+    return handOffSetter(automation, instagramAccountId, userId, "enlace desconocido o sin texto");
+  }
+
+  let accessToken: string;
+  try {
+    accessToken = decryptToken(automation.instagramAccount.accessToken);
+  } catch {
+    return;
+  }
+  // Best-effort like a sequence step: a refused send ends it, no retry.
+  for (const [i, text] of messages.entries()) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 2000 + Math.random() * 4000));
+    // Noted before sending, so its echo is recognised as ours.
+    await addSetterTurn(instagramAccountId, userId, "tu", text);
+    try {
+      await sendDirectMessage(accessToken, instagramAccountId, userId, text);
+    } catch (error) {
+      console.log("[DM Worker] Setter message not delivered:", formatError(error));
+      return;
+    }
+  }
+  if (reply.siguiente !== "seguir") {
+    await recordSetterOutcome(automation, userId, reply.siguiente, reply.motivo);
+  }
+}
+
 async function enqueueStep(data: ProcessStepJob, delaySeconds: number) {
   await getDMQueue().add(STEP_JOB_NAME, data, {
     delay: delaySeconds * 1000,
@@ -1441,6 +1602,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
   if (!scheduledAutomationId) {
     try {
       await recordInbound(instagramAccountId, senderId, Date.now(), messageText);
+      if (await queueSetterTurn(instagramAccountId, senderId, messageText)) return;
       if (await resumeWaitingSequence(instagramAccountId, senderId)) return;
     } catch (error) {
       console.error("[DM Worker] Could not check a waiting sequence:", formatError(error));
@@ -1761,6 +1923,9 @@ async function processJob(job: Job<DmQueueJob>): Promise<void> {
   }
   if (job.name === STEP_JOB_NAME) {
     return processStep(job as Job<ProcessStepJob>);
+  }
+  if (job.name === SETTER_JOB_NAME) {
+    return processSetter(job as Job<ProcessSetterJob>);
   }
   return processComment(job as Job<ProcessCommentJob>);
 }
