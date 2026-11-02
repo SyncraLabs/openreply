@@ -96,10 +96,15 @@ const totalDelay = (steps: { delaySeconds: number }[]) =>
 
 // Instead of fixed messages, an AI answers each reply in the account owner's
 // voice (lib/queue/setter.ts). `brief` is who they are, what they offer and
-// how they talk; `links` are the only URLs it may send, by name.
+// how they talk; `links` are the only URLs it may send, by name; `audios` are
+// voice notes the owner recorded, each with when it fits.
+const setterKey = z.string().regex(/^[a-z-]{1,24}$/);
 const setterSchema = z.object({
   brief: z.string().trim().min(1).max(12000),
-  links: z.record(z.string().regex(/^[a-z]{1,20}$/), z.string().url()).default({}),
+  links: z.record(setterKey, z.string().url()).default({}),
+  audios: z
+    .record(setterKey, z.object({ url: z.string().url(), cuando: z.string().trim().min(1).max(400) }))
+    .default({}),
   maxReplies: z.number().int().min(1).max(30).default(12),
 });
 

@@ -21,6 +21,7 @@ import {
   RateLimitError,
   TokenExpiredError,
   getUserFollowStatus,
+  getUserProfileName,
   sendCommentReply,
   sendDirectMessage,
   sendDirectMessageAttachment,
@@ -67,6 +68,7 @@ import {
   askSetter,
   countSetterReply,
   getSetter,
+  markAudioOut,
   pauseSetter,
   renderSetterMessages,
   startSetter,
@@ -839,7 +841,10 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
             automation.instagramAccount.instagramId,
             commenterId,
             automation.id,
-            commenterName ?? null,
+            {
+              username: commenterName ?? null,
+              profileName: await getUserProfileName(accessToken, commenterId),
+            },
             renderMessageWithoutLink({ message: automation.dmMessage, commenterName })
           );
         } catch (error) {
@@ -1365,7 +1370,10 @@ async function processSetter(job: Job<ProcessSetterJob>): Promise<void> {
 
   let reply;
   try {
-    reply = await askSetter(config, state.turns, state.commenterName);
+    reply = await askSetter(config, state.turns, {
+      profileName: state.profileName,
+      username: state.username,
+    });
   } catch (error) {
     console.error("[DM Worker] Setter call failed:", formatError(error));
   }
@@ -1373,7 +1381,7 @@ async function processSetter(job: Job<ProcessSetterJob>): Promise<void> {
   if (reply.siguiente === "humano") {
     return handOffSetter(automation, instagramAccountId, userId, reply.motivo);
   }
-  const messages = renderSetterMessages(reply.mensajes, config.links);
+  const messages = renderSetterMessages(reply.mensajes, config);
   if (!messages || messages.length === 0) {
     return handOffSetter(automation, instagramAccountId, userId, "enlace desconocido o sin texto");
   }
@@ -1385,12 +1393,22 @@ async function processSetter(job: Job<ProcessSetterJob>): Promise<void> {
     return;
   }
   // Best-effort like a sequence step: a refused send ends it, no retry.
-  for (const [i, text] of messages.entries()) {
-    if (i > 0) await new Promise((r) => setTimeout(r, 2000 + Math.random() * 4000));
-    // Noted before sending, so its echo is recognised as ours.
-    await addSetterTurn(instagramAccountId, userId, "tu", text);
+  for (const [i, message] of messages.entries()) {
+    // One line at a time, with the pause of someone typing it.
+    if (i > 0) {
+      const typing = message.type === "text" ? message.text.length * 60 : 8000;
+      await new Promise((r) => setTimeout(r, 1200 + typing + Math.random() * 2500));
+    }
     try {
-      await sendDirectMessage(accessToken, instagramAccountId, userId, text);
+      // Noted before sending, so its echo is recognised as ours.
+      if (message.type === "audio") {
+        await addSetterTurn(instagramAccountId, userId, "tu", `{audio:${message.key}}`);
+        await markAudioOut(instagramAccountId, userId);
+        await sendDirectMessageAttachment(accessToken, instagramAccountId, userId, "audio", message.url);
+      } else {
+        await addSetterTurn(instagramAccountId, userId, "tu", message.text);
+        await sendDirectMessage(accessToken, instagramAccountId, userId, message.text);
+      }
     } catch (error) {
       console.log("[DM Worker] Setter message not delivered:", formatError(error));
       return;

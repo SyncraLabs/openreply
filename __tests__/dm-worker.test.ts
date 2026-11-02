@@ -33,6 +33,7 @@ const {
     countSetterReply: vi.fn(),
     takeDailyCall: vi.fn(),
     askSetter: vi.fn(),
+    markAudioOut: vi.fn(),
   },
   // In-memory stand-in for the Redis conversation state.
   mockConvo: {
@@ -92,6 +93,7 @@ vi.mock("@/lib/meta/client", () => ({
   sendPrivateReplyWithLinkButton: mockSendPrivateReplyWithLinkButton,
   sendPrivateReplyWithButton: mockSendPrivateReplyWithButton,
   getUserFollowStatus: mockGetUserFollowStatus,
+  getUserProfileName: vi.fn(async () => null),
   sendDirectMessageWithButton: mockSendDirectMessageWithButton,
   sendDirectMessage: mockSendDirectMessage,
   sendDirectMessageWithLinkButton: mockSendDirectMessageWithLinkButton,
@@ -1925,7 +1927,12 @@ describe("DM Worker — AI setter", () => {
   const setterSequence = {
     main: [],
     branches: [],
-    setter: { brief: "soy rodrigo", links: { agenda: "https://agenda.test/x" }, maxReplies: 12 },
+    setter: {
+      brief: "soy rodrigo",
+      links: { agenda: "https://agenda.test/x" },
+      audios: { presentacion: { url: "https://media.test/a1", cuando: "al principio" } },
+      maxReplies: 12,
+    },
   };
   const setterAutomation = {
     ...mockAutomation,
@@ -1934,7 +1941,8 @@ describe("DM Worker — AI setter", () => {
   };
   const state = (turns: { from: "tu" | "lead"; text: string }[], status = "active") => ({
     automationId: "auto_789",
-    commenterName: null,
+    username: "vane",
+    profileName: "Vanesa",
     status,
     replies: 0,
     turns: turns.map((t) => ({ ...t, at: 1 })),
@@ -1973,14 +1981,21 @@ describe("DM Worker — AI setter", () => {
 
   it("sends what the model wrote with the link filled in, and marks the lead", async () => {
     mockSetter.getSetter.mockResolvedValue(state([{ from: "tu", text: "es así?" }, { from: "lead", text: "sí, puedo invertir" }]));
-    mockSetter.askSetter.mockResolvedValue({ mensajes: ["perfecto", "coge hueco aquí {agenda}"], siguiente: "agenda", motivo: "puede" });
+    mockSetter.askSetter.mockResolvedValue({
+      mensajes: ["perfecto", "{audio:presentacion}", "coge hueco aquí {agenda}"],
+      siguiente: "agenda",
+      motivo: "puede",
+    });
     vi.useFakeTimers();
     const run = getProcessor()(setterJob);
     await vi.runAllTimersAsync();
     await run;
     vi.useRealTimers();
     expect(mockSendDirectMessage).toHaveBeenNthCalledWith(1, "decrypted_token", "ig_456", "u1", "perfecto");
+    expect(mockSendDirectMessageAttachment).toHaveBeenCalledWith("decrypted_token", "ig_456", "u1", "audio", "https://media.test/a1");
+    expect(mockSetter.markAudioOut).toHaveBeenCalledWith("ig_456", "u1");
     expect(mockSendDirectMessage).toHaveBeenNthCalledWith(2, "decrypted_token", "ig_456", "u1", "coge hueco aquí https://agenda.test/x");
+    expect(mockSetter.askSetter).toHaveBeenCalledWith(expect.anything(), expect.anything(), { profileName: "Vanesa", username: "vane" });
     expect(mockPrisma.sequenceChoice.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ update: expect.objectContaining({ branchId: "ia_agenda", qualified: true }) })
     );

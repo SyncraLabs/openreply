@@ -276,6 +276,23 @@ export async function getUserFollowStatus(
   }
 }
 
+/** The name on a person's Instagram profile, or null if it has none or the call fails. */
+export async function getUserProfileName(accessToken: string, recipientId: string): Promise<string | null> {
+  const url = new URL(`${instagramGraphBase()}/${recipientId}`);
+  url.searchParams.set("fields", "name");
+  try {
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return typeof data?.name === "string" && data.name.trim() ? data.name.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * A tappable web_url button in a DM button template. Instagram's button
  * template supports up to 3 buttons; titles are capped at 20 chars by Meta.

@@ -5,24 +5,36 @@ vi.mock("../lib/queue/client", () => ({ getRedisConnection: vi.fn() }));
 import { isOwnEcho, renderSetterMessages } from "../lib/queue/setter";
 import { parseEchoEvents } from "../lib/meta/webhook";
 
-const links = { agenda: "https://aioperator.test/agendar?utm_source=instagram", skool: "https://aioperator.test/comunidad" };
+const config = {
+  links: { agenda: "https://aioperator.test/agendar?utm_source=instagram", skool: "https://aioperator.test/comunidad" },
+  audios: { presentacion: { url: "https://media.test/a1", cuando: "al principio" } },
+};
+const text = (t: string) => ({ type: "text", text: t });
 
 describe("renderSetterMessages", () => {
   it("fills in link markers and drops empty messages", () => {
-    expect(renderSetterMessages(["top", "aquí: {agenda}", "  "], links)).toEqual([
-      "top",
-      "aquí: https://aioperator.test/agendar?utm_source=instagram",
+    expect(renderSetterMessages(["top", "aquí: {agenda}", "  "], config)).toEqual([
+      text("top"),
+      text("aquí: https://aioperator.test/agendar?utm_source=instagram"),
     ]);
   });
 
   it("refuses a marker or a URL that isn't configured", () => {
-    expect(renderSetterMessages(["mira {curso}"], links)).toBeNull();
-    expect(renderSetterMessages(["mira https://otra.web/x"], links)).toBeNull();
+    expect(renderSetterMessages(["mira {curso}"], config)).toBeNull();
+    expect(renderSetterMessages(["mira https://otra.web/x"], config)).toBeNull();
+    expect(renderSetterMessages(["{audio:despedida}"], config)).toBeNull();
   });
 
   it("accepts a configured URL written out, even with trailing punctuation", () => {
-    expect(renderSetterMessages(["entra en https://aioperator.test/comunidad."], links)).toEqual([
-      "entra en https://aioperator.test/comunidad.",
+    expect(renderSetterMessages(["entra en https://aioperator.test/comunidad."], config)).toEqual([
+      text("entra en https://aioperator.test/comunidad."),
+    ]);
+  });
+
+  it("turns a message that is only an audio marker into that voice note", () => {
+    expect(renderSetterMessages(["te mando un audio", "{audio:presentacion}"], config)).toEqual([
+      text("te mando un audio"),
+      { type: "audio", key: "presentacion", url: "https://media.test/a1" },
     ]);
   });
 });

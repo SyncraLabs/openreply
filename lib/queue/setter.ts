@@ -22,7 +22,8 @@ export interface SetterTurn {
 
 export interface SetterState {
   automationId: string;
-  commenterName: string | null;
+  username: string | null;
+  profileName: string | null;
   status: "active" | "paused";
   replies: number;
   turns: SetterTurn[];
@@ -30,13 +31,19 @@ export interface SetterState {
 
 const metaKey = (account: string, user: string) => `setter:meta:${account}:${user}`;
 const turnsKey = (account: string, user: string) => `setter:turns:${account}:${user}`;
+const audioOutKey = (account: string, user: string) => `setter:audio:${account}:${user}`;
+
+/** Mark a voice note as ours just before sending it, so its echo doesn't pause the setter. */
+export async function markAudioOut(account: string, user: string) {
+  await getRedisConnection().set(audioOutKey(account, user), "1", "EX", 120);
+}
 
 /** Open a setter conversation after the private reply went out. */
 export async function startSetter(
   account: string,
   user: string,
   automationId: string,
-  commenterName: string | null,
+  lead: SetterLead,
   opener: string
 ) {
   const meta = metaKey(account, user);
@@ -44,7 +51,13 @@ export async function startSetter(
   await getRedisConnection()
     .multi()
     .del(meta, turns)
-    .hset(meta, { automationId, commenterName: commenterName ?? "", status: "active", replies: 0 })
+    .hset(meta, {
+      automationId,
+      username: lead.username ?? "",
+      profileName: lead.profileName ?? "",
+      status: "active",
+      replies: 0,
+    })
     .rpush(turns, JSON.stringify({ from: "tu", text: opener, at: Date.now() }))
     .expire(meta, TTL_SECONDS)
     .expire(turns, TTL_SECONDS)
@@ -58,7 +71,8 @@ export async function getSetter(account: string, user: string): Promise<SetterSt
   const turns = await redis.lrange(turnsKey(account, user), 0, -1);
   return {
     automationId: meta.automationId,
-    commenterName: meta.commenterName || null,
+    username: meta.username || null,
+    profileName: meta.profileName || null,
     status: meta.status === "paused" ? "paused" : "active",
     replies: Number(meta.replies) || 0,
     turns: turns.map((t) => JSON.parse(t) as SetterTurn),
@@ -113,6 +127,8 @@ export async function noteOwnerMessage(account: string, user: string, text: stri
   // Before they answer, the only thing going out is the private reply itself.
   if (!state.turns.some((t) => t.from === "lead")) return false;
   if (text && isOwnEcho(state.turns, text)) return false;
+  // A voice note we just sent echoes back with no text.
+  if (!text && (await getRedisConnection().del(audioOutKey(account, user)))) return false;
   await pauseSetter(account, user);
   await addSetterTurn(account, user, "tu", text || "(audio o archivo)");
   return true;
@@ -123,7 +139,7 @@ export async function noteOwnerMessage(account: string, user: string, text: stri
 export const SETTER_NEXT = ["seguir", "agenda", "skool", "syncra", "humano"] as const;
 
 const replySchema = z.object({
-  mensajes: z.array(z.string()).max(3),
+  mensajes: z.array(z.string()).max(5),
   siguiente: z.enum(SETTER_NEXT),
   motivo: z.string(),
 });
@@ -133,50 +149,77 @@ export type SetterReply = z.infer<typeof replySchema>;
 const RULES = `Eres Rodrigo y contestas tú mismo los mensajes directos de Instagram de gente que ha comentado en uno de tus vídeos. Escribes como Rodrigo, en primera persona, y nunca dices ni das a entender que eres una IA, un bot o un equipo.
 
 Cómo escribes:
-- Como en un chat con alguien, con prisa: minúsculas, frases cortas, sin saludos ni despedidas.
-- Uno o dos mensajes por turno, casi nunca tres. A veces basta con una palabra («top», «vale», «dale») y luego la pregunta.
-- Una sola pregunta por turno.
-- A veces «??» en vez de «?», a veces «tio», «y tal», «la verdad». Sin pasarte, que no se note.
+- Frase a frase, como en un chat de verdad: cada mensaje es una frase corta, de 2 a 12 palabras. Lo que dirías en un párrafo lo partes en varios mensajes seguidos (normalmente 2 o 3, hasta 5). A veces un mensaje es una sola palabra: «top», «vale», «dale», «buah», «jajaja».
+- Minúsculas, sin saludos formales, sin despedidas, sin punto final.
+- A veces «??» en vez de «?», a veces «tio», «y tal», «la verdad», «ostras». Sin pasarte, que no se note el truco.
+- Le llamas por su nombre de vez en cuando, no en cada mensaje.
 - Sin emojis, salvo alguno suelto muy de vez en cuando. Sin rayas largas, listas, negritas ni exclamaciones.
-- Nada de frases de vendedor o de coach («increíble oportunidad», «no es X, es Y», «transforma», «desbloquea», «te entiendo perfectamente»). Si algo suena a plantilla, dilo más normal.
-- Contestas a lo que te ha dicho de verdad, con sus palabras. Si te cuenta algo personal, lo reconoces en pocas palabras antes de seguir.
-- No repites preguntas que ya ha contestado y no haces un interrogatorio.
+- Nada de frases de vendedor o de coach («increíble oportunidad», «no es X, es Y», «transforma», «desbloquea», «te entiendo perfectamente», «qué bien que…»). Si algo suena a plantilla, dilo más normal.
+- Nunca le das opciones a elegir («¿A o B?», «¿esto, esto o esto?»). Preguntas abiertas y cortas, como se las harías a alguien en persona.
 
-Lo que buscas en la conversación, en este orden, sin prisas pero sin enrollarte:
-1. Qué hace ahora y en qué punto está.
-2. Qué quiere conseguir y para cuándo.
-3. Si estaría en posición de invertir en ello ahora si ve que encaja. Lo preguntas directo, una vez, cuando ya sabes lo anterior.
+Cómo llevas la conversación:
+- Es una conversación, no un formulario. Una sola pregunta por turno, y siempre al final.
+- Antes de preguntar, reaccionas a lo que te acaba de decir, con sus palabras y en pocas palabras. Si te cuenta algo, te interesas: «y eso?», «cuánto llevas así?», «qué es lo que más te quema?».
+- Le dejas hablar. Si se enrolla, mejor: no le cortas para ir a lo tuyo.
+- Vas poco a poco sacando la información, por este orden aproximado:
+  1. Cómo se llama, si no lo sabes ya por su perfil o porque te lo ha dicho. Es lo primero que preguntas.
+  2. De dónde es.
+  3. A qué se dedica ahora y cómo le va.
+  4. Qué sabe o ha probado ya de IA.
+  5. Qué quiere conseguir con esto y por qué ahora.
+  6. Cuánto tiempo le puede dedicar de verdad.
+  7. Si vemos que encaja, si estaría en posición de invertir en ello ahora. Lo preguntas directo, una vez, cuando ya sabes casi todo lo anterior.
+- No repites preguntas que ya ha contestado. Si algo ya salió, te lo saltas.
+- No hablas de lo que ofreces hasta que no le conoces. Si te pregunta antes cómo funciona, le contestas en corto y vuelves a él.
 
 Con eso eliges "siguiente":
-- "seguir": todavía te falta algo de lo de arriba, o la conversación sigue después de haber pasado un enlace.
-- "agenda": puede y quiere invertir ahora. Le pasas {agenda} para una llamada de 30 min y le dices que lo veis ahí.
+- "seguir": todavía te falta información, o la conversación sigue después de haber pasado un enlace.
+- "agenda": ya le conoces y puede y quiere invertir ahora. Le dices que lo mejor es veros en una llamada de 30 min y le pasas {agenda}.
 - "skool": ahora no puede invertir, o está empezando sin prisa. Le pasas {skool} y, si le sirve, el curso gratis {curso}. Sin hacerle sentir mal.
-- "syncra": tiene un negocio propio y lo que quiere es meter IA en él, no montar un negocio de IA. Le preguntas a qué se dedica y qué le come más tiempo, y le dices que eso lo hacéis desde Syncra, tu consultora de IA.
-- "humano": no sabes qué contestar sin inventar; te preguntan el precio, condiciones, garantías o algo que no está aquí; se queja o está molesto; pide hablar por otro lado; pregunta si eres un bot; o la conversación se pone rara. Deja "mensajes" vacío y Rodrigo lo sigue a mano.
+- "syncra": tiene un negocio propio y lo que quiere es meter IA en él, no montar un negocio de IA. Le preguntas qué le come más tiempo y le dices que eso lo hacéis desde Syncra, tu consultora de IA.
+- "humano": no sabes qué contestar sin inventar; te pregunta el precio, condiciones, garantías o algo que no está aquí; se queja o está molesto; pide hablar por otro lado; pregunta si eres un bot; o la conversación se pone rara. Deja "mensajes" vacío y Rodrigo lo sigue a mano.
 
 Nunca te inventas datos, precios, resultados de alumnos, plazos ni promesas. Lo que no está en este texto no lo dices.
 Los enlaces solo los escribes con su marcador entre llaves (por ejemplo {agenda}), nunca la URL.
+Para mandar uno de tus audios, pones un mensaje que sea solo su marcador, por ejemplo {audio:presentacion}. Como mucho un audio por turno, y solo cuando encaja con lo que dice al lado. Un audio ya mandado no lo repites.
 "motivo" es una frase para Rodrigo explicando por qué has elegido "siguiente".`;
 
 let client: Anthropic | null = null;
+
+/** Who they are, as far as Instagram tells us. */
+export interface SetterLead {
+  // The name on their profile, which may be a real name, a brand or nothing.
+  profileName: string | null;
+  username: string | null;
+}
 
 /** Ask Claude for the next turn. Null when it can't answer (refusal, bad output). */
 export async function askSetter(
   config: SetterConfig,
   turns: SetterTurn[],
-  commenterName: string | null
+  lead: SetterLead
 ): Promise<SetterReply | null> {
   client ??= new Anthropic();
-  const markers = Object.keys(config.links).map((k) => `{${k}}`).join(", ") || "ninguno";
+  const links = Object.keys(config.links).map((k) => `{${k}}`).join(", ") || "ninguno";
+  const audios =
+    Object.entries(config.audios)
+      .map(([k, a]) => `- {audio:${k}}: ${a.cuando}`)
+      .join("\n") || "ninguno";
+  const who = [
+    lead.profileName ? `Nombre en su perfil: «${lead.profileName}» (puede ser su nombre, una marca o un apodo; úsalo solo si parece un nombre de persona)` : "En su perfil no pone nombre",
+    lead.username ? `usuario @${lead.username}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
   const transcript = turns.map((t) => `[${t.from === "tu" ? "tú" : "lead"}] ${t.text}`).join("\n");
   const response = await client.beta.messages.parse({
     model: MODEL,
     max_tokens: 4000,
-    system: `${RULES}\n\nMarcadores de enlace disponibles: ${markers}.\n\n# Quién eres y qué ofreces\n\n${config.brief}`,
+    system: `${RULES}\n\nEnlaces: ${links}.\nTus audios:\n${audios}\n\n# Quién eres y qué ofreces\n\n${config.brief}`,
     messages: [
       {
         role: "user",
-        content: `Conversación por DM${commenterName ? ` con ${commenterName}` : ""}, de la más antigua a la más reciente:\n\n${transcript}\n\nDecide qué le contestas ahora.`,
+        content: `${who}.\n\nConversación por DM, de la más antigua a la más reciente:\n\n${transcript}\n\nDecide qué le contestas ahora.`,
       },
     ],
     output_config: { effort: "low", format: betaZodOutputFormat(replySchema) },
@@ -187,17 +230,28 @@ export async function askSetter(
   return response.parsed_output ?? null;
 }
 
+export type SetterMessage = { type: "text"; text: string } | { type: "audio"; key: string; url: string };
+
 /**
- * Swap link markers for their URLs. Null if a message carries a marker or a
- * URL the config doesn't have: never send a link the owner didn't give.
+ * Swap link markers for their URLs and audio markers for the voice note. Null
+ * if a message carries a marker or a URL the config doesn't have: never send a
+ * link or an audio the owner didn't give.
  */
-export function renderSetterMessages(messages: string[], links: Record<string, string>): string[] | null {
+export function renderSetterMessages(messages: string[], config: Pick<SetterConfig, "links" | "audios">): SetterMessage[] | null {
+  const { links, audios } = config;
   const allowed = new Set(Object.values(links));
-  const out: string[] = [];
+  const out: SetterMessage[] = [];
   for (const raw of messages) {
+    const audio = raw.trim().match(/^\{audio:([a-z-]+)\}$/);
+    if (audio) {
+      const found = audios[audio[1]];
+      if (!found) return null;
+      out.push({ type: "audio", key: audio[1], url: found.url });
+      continue;
+    }
     let unknown = false;
     const text = raw
-      .replace(/\{([a-z]+)\}/g, (_, name: string) => {
+      .replace(/\{([a-z:-]+)\}/g, (_, name: string) => {
         if (!links[name]) unknown = true;
         return links[name] ?? "";
       })
@@ -205,7 +259,7 @@ export function renderSetterMessages(messages: string[], links: Record<string, s
     if (unknown) return null;
     const urls = text.match(/https?:\/\/\S+/g) ?? [];
     if (urls.some((u) => !allowed.has(u.replace(/[.,;:!?)]+$/, "")))) return null;
-    if (text) out.push(text);
+    if (text) out.push({ type: "text", text });
   }
   return out;
 }
