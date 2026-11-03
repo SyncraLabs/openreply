@@ -16,6 +16,7 @@ import {
   type ProcessFollowUpJob,
 } from "./client";
 import { prisma } from "@/lib/db/client";
+import { notifyAiOperator } from "@/lib/aioperator-webhook";
 import {
   MetaApiError,
   RateLimitError,
@@ -804,6 +805,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           errorMessage: null,
         },
       });
+      notifyAiOperator({ evento: "enlace", userId: commenterId, automationId: automation.id });
     } catch (error) {
       await releaseWorkspaceDMReservation(
         automation.workspaceId,
@@ -964,6 +966,14 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
         where: { automationId_userId: { automationId: target.id, userId } },
         create: { workspaceId: target.workspaceId, automationId: target.id, userId, ...answer },
         update: answer,
+      });
+      notifyAiOperator({
+        evento: "boton",
+        userId,
+        automationId: target.id,
+        buttonKey: chosen.id,
+        buttonText: chosen.name,
+        qualified: chosen.qualified,
       });
     }
     await startSequence(target, userId, nameLog?.commenterName ?? null, branch.branchId);
@@ -1240,7 +1250,7 @@ async function scheduleStep(data: ProcessStepJob, step: SequenceStep) {
  * held step, counting its wait from now. Returns whether one was resumed, in
  * which case the message is their answer and no keyword campaign reacts to it.
  */
-async function resumeWaitingSequence(instagramAccountId: string, userId: string): Promise<boolean> {
+async function resumeWaitingSequence(instagramAccountId: string, userId: string, text = ""): Promise<boolean> {
   const wait = await takeWait(instagramAccountId, userId);
   if (!wait) return false;
 
@@ -1253,6 +1263,7 @@ async function resumeWaitingSequence(instagramAccountId: string, userId: string)
   }
   const step = getBranchSteps(parseSequence(automation.sequence), wait.branchId)[wait.index];
   if (!step) return false;
+  if (text) notifyAiOperator({ evento: "texto", userId, automationId: automation.id, text });
 
   await enqueueStep(
     {
@@ -1281,6 +1292,7 @@ async function queueSetterTurn(instagramAccountId: string, userId: string, text:
   const state = await getSetter(instagramAccountId, userId);
   if (!state) return false;
   await addSetterTurn(instagramAccountId, userId, "lead", text || "(ha mandado un audio, foto o archivo)");
+  if (text) notifyAiOperator({ evento: "texto", userId, automationId: state.automationId, text });
   if (state.status !== "active") return true;
   const delay = (60 + Math.floor(Math.random() * 420)) * 1000;
   await getDMQueue().add(
@@ -1322,6 +1334,14 @@ async function recordSetterOutcome(
       where: { automationId_userId: { automationId: automation.id, userId } },
       create: { workspaceId: automation.workspaceId, automationId: automation.id, userId, ...answer },
       update: answer,
+    });
+    notifyAiOperator({
+      evento: "boton",
+      userId,
+      automationId: automation.id,
+      buttonKey: answer.branchId,
+      buttonText: answer.branchName,
+      qualified: answer.qualified,
     });
   } catch (error) {
     console.error("[DM Worker] Could not record setter outcome:", formatError(error));
@@ -1621,7 +1641,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
     try {
       await recordInbound(instagramAccountId, senderId, Date.now(), messageText);
       if (await queueSetterTurn(instagramAccountId, senderId, messageText)) return;
-      if (await resumeWaitingSequence(instagramAccountId, senderId)) return;
+      if (await resumeWaitingSequence(instagramAccountId, senderId, messageText)) return;
     } catch (error) {
       console.error("[DM Worker] Could not check a waiting sequence:", formatError(error));
     }
