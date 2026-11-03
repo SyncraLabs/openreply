@@ -355,7 +355,8 @@ export async function sendDirectMessage(
   accessToken: string,
   instagramAccountId: string,
   userId: string,
-  message: string
+  message: string,
+  tag?: "HUMAN_AGENT"
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
     `${instagramGraphBase()}/${instagramAccountId}/messages`,
@@ -368,6 +369,7 @@ export async function sendDirectMessage(
       body: JSON.stringify({
         recipient: { id: userId },
         message: { text: message },
+        ...(tag ? { messaging_type: "MESSAGE_TAG", tag } : {}),
       }),
     }
   );
@@ -467,7 +469,8 @@ export async function sendDirectMessageAttachment(
   instagramAccountId: string,
   userId: string,
   type: "image" | "audio" | "video" | "file",
-  url: string
+  url: string,
+  tag?: "HUMAN_AGENT"
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
     `${instagramGraphBase()}/${instagramAccountId}/messages`,
@@ -480,6 +483,7 @@ export async function sendDirectMessageAttachment(
       body: JSON.stringify({
         recipient: { id: userId },
         message: { attachment: { type, payload: { url } } },
+        ...(tag ? { messaging_type: "MESSAGE_TAG", tag } : {}),
       }),
     }
   );
