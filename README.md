@@ -90,6 +90,17 @@ If you use Claude Code, Cursor, or a similar tool, the Meta setup is a lot faste
 
 For the complete stack — application libraries, the two runtime processes, and the free services this runs on (Vercel, Neon, Redis Cloud, an Oracle Cloud always-free VM for the worker, Resend, Meta) — see [docs/stack.md](docs/stack.md).
 
+## Integration with AI Operator (CRM)
+
+`AIOPERATOR_WEBHOOK_SECRET` is the shared secret for both directions.
+
+- **Events out**: with `AIOPERATOR_WEBHOOK_URL` set, button presses, free-text replies and link deliveries are POSTed to AI Operator (`lib/aioperator-webhook.ts`). Fire and forget, never blocks the DM.
+- **DM in**: `POST /api/aioperator/dm` with `Authorization: Bearer $AIOPERATOR_WEBHOOK_SECRET` and body `{"instagram_id": "...", "texto": "...", "audio_url": "https://..."}` (`texto` or `audio_url` required).
+  - Within 24 h of the person's last message it sends normally. Between 24 h and 7 days it uses the `HUMAN_AGENT` tag. Beyond that it answers 409 (`fuera de ventana: escríbele desde la app de Instagram`).
+  - Responses: `200 {ok, dmLogId}`, `400` bad body, `401` bad token, `404` unknown contact, `409` out of window, `429` over 20 sends/min, `500` generic.
+  - It is logged in `DmLog` with `matchedKeyword = "aioperator"` and a `commentId` starting `aioperator:`, so it shows in `/contactos` and `/logs`.
+- **Contacts export**: `./tools/ops contactos-export > contactos.json` (read only). One entry per Instagram user with campaigns, buttons, free texts still in Redis (48 h), and first/last contact. Holds personal data, so `contactos.json` is gitignored.
+
 ## Contributing
 
 Issues and pull requests are welcome. If you hit a Meta quirk that is not in the setup guide, a PR that documents it is worth as much as a code fix, because that is where everyone loses time.
