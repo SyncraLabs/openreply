@@ -99,6 +99,7 @@ For the complete stack — application libraries, the two runtime processes, and
   - Within 24 h of the person's last message it sends normally. Between 24 h and 7 days it uses the `HUMAN_AGENT` tag. Beyond that it answers 409 (`fuera de ventana: escríbele desde la app de Instagram`).
   - Responses: `200 {ok, dmLogId}`, `400` bad body, `401` bad token, `404` unknown contact, `409` out of window, `429` over 20 sends/min, `500` generic.
   - It is logged in `DmLog` with `matchedKeyword = "aioperator"` and a `commentId` starting `aioperator:`, so it shows in `/contactos` and `/logs`.
+- **Campaigns out**: `GET /api/aioperator/campanas` with the same Bearer. Read only, cached 60 s in Redis. Returns `{ok, dias: 30, campanas: [{id, nombre, estado (activa|pausada|retirada), keyword, postId, postUrl, dmTexto, botones, enviados, fallidos, botonesPulsados, cualificados, porBoton}]}`; counters are the last 30 days of `DmLog` and `SequenceChoice`. Feeds AI Operator's `/panel/sistema`.
 - **Contacts export**: `./tools/ops contactos-export > contactos.json` (read only). One entry per Instagram user with campaigns, buttons, free texts still in Redis (48 h), and first/last contact. Holds personal data, so `contactos.json` is gitignored.
 
 ## Contributing
