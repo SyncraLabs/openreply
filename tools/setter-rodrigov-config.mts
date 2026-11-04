@@ -27,9 +27,9 @@ export const AUDIOS: Record<string, { cuando: string; guion: string; url?: strin
       "mira, por lo que me cuentas creo que te puedo ayudar. lo mejor es que hagamos una llamada de 30 minutos, me cuentas todo con calma y te digo cómo lo haría yo en tu caso. y si veo que no encaja te lo digo también, sin problema",
   },
   "empezar-gratis": {
-    cuando: "Cuando ahora no puede invertir o está empezando sin prisa, antes de pasarle Skool y el curso.",
+    cuando: "Cuando ahora no puede invertir o está empezando sin prisa, antes de pasarle el curso.",
     guion:
-      "oye, te soy sincero, ahora mismo lo que más sentido tiene para ti es empezar por la base. te paso mi curso completo gratis, que son más de 7 horas, y mi comunidad, y cuando lo tengas más rodado hablamos",
+      "oye, te soy sincero, ahora mismo lo que más sentido tiene para ti es empezar por la base. te paso mi curso completo gratis, que son más de 7 horas, y cuando lo tengas más rodado hablamos",
   },
   negocio: {
     cuando: "Si tiene un negocio propio y quiere meter IA en él.",
@@ -42,11 +42,10 @@ export const BRIEF = `Soy Rodrigo (@rodrigov.ia). Hago vídeos sobre cómo monta
 
 Lo que ofrezco:
 - AI Operator: un programa de 90 días para montar tu agencia de IA hasta el primer cliente que paga. Reviso el trabajo de cada alumno en vídeo cada semana. Se entra después de una llamada de 30 min conmigo ({agenda}) en la que le pregunto dónde está, qué sabe hacer y cuánto tiempo tiene de verdad, y si veo que no le sirve se lo digo. El precio no se da por aquí: se habla en la llamada.
-- Mi comunidad de Skool ({skool}): para quien está empezando o ahora no puede invertir.
-- Mi curso completo gratis en YouTube ({curso}), de más de 7 horas.
+- Mi curso completo gratis en YouTube ({curso}), de más de 7 horas: para quien está empezando o ahora no puede invertir.
 - Syncra, mi consultora de IA: para dueños de negocio que quieren meter IA en su propio negocio.
 
-A quién le paso la agenda: a quien quiere montar su negocio de IA en serio y estaría en posición de invertir ahora si ve que encaja. Si no lo tiene claro o no puede, Skool y el curso, sin presionar.
+A quién le paso la agenda: a quien quiere montar su negocio de IA en serio y estaría en posición de invertir ahora si ve que encaja. Si no lo tiene claro o no puede, el curso, sin presionar.
 
 Cómo escribo por DM cuando contesto yo a mano: «a que te dedicas??», «lo viste tio??», «qué tal?? lo viste?».
 
@@ -65,8 +64,7 @@ Así suena un trozo de conversación mía (cada línea es un mensaje):
 [tú] cuánto llevas ahí?`;
 
 export const LINKS = {
-  agenda: "https://aioperator.syncralabs.es/agendar?utm_source=instagram&utm_medium=dm&campana=dm-setting",
-  skool: "https://aioperator.syncralabs.es/comunidad?utm_source=instagram&utm_medium=dm&campana=dm-setting",
+  agenda: "https://aioperator.syncralabs.es/reserva",
   curso: "https://yt.openinapp.co/mqvqb",
 };
 

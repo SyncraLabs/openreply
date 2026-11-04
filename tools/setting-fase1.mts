@@ -5,8 +5,8 @@
  *   comentario → (privada, la de siempre) «acabo de ver que has comentado…»
  *   responde   → ¿en qué punto estás?  [empiezo de cero] [ya sé montar cosas] [tengo un negocio]
  *   cero/monta → qué quiere en 6 meses → ¿podría invertir?  [sí, si tiene sentido] [ahora no]
- *     sí       → cualificado: enlace a /agendar + «ahora te escribo yo»
- *     no       → Skool + curso gratis
+ *     sí       → cualificado: la llamada y, en su propio mensaje, el enlace corto a /agendar
+ *     no       → curso gratis (Skool salió del embudo el 3 nov 2026)
  *   negocio    → cualificado (Syncra): qué negocio y qué le come el tiempo, y sigue Rodrigo a mano
  *
  *   ./tools/ops setting-fase1           muestra qué cambiaría, sin tocar nada
@@ -20,8 +20,8 @@ import { prisma } from "@/lib/db/client";
 import { sequenceSchema } from "@/lib/sequence";
 
 const RODRIGOV_IA = "cmslqda9l000404kv76a8n701";
-const AGENDAR = "https://aioperator.syncralabs.es/agendar?utm_source=instagram&utm_medium=dm&campana=dm-setting";
-const SKOOL = "https://aioperator.syncralabs.es/comunidad?utm_source=instagram&utm_medium=dm&campana=dm-setting";
+// Redirige a /agendar con el origen puesto (next.config.ts de ai-operator).
+const AGENDAR = "https://aioperator.syncralabs.es/reserva";
 const CURSO = "https://yt.openinapp.co/mqvqb";
 const HORA = 3600;
 
@@ -51,19 +51,21 @@ const cualificar = (r: string) => [
 const llamada = (r: string) => [
   text(
     `${r}-si1`,
-    `perfecto, con lo que me cuentas creo que te puedo ayudar de verdad\n\nte dejo aquí mi agenda para que cojas hueco cuando te venga bien. son 30 min, vemos tu caso y te digo si te puedo ayudar o no\n\n${AGENDAR}\n\nahora te escribo yo personalmente`,
+    "perfecto, por lo que me cuentas creo que te puedo ayudar\n\nlo mejor es que hagamos una llamada de 30 min, vemos tu caso y te digo cómo lo haría yo. y si veo que no encaja te lo digo también",
     { delaySeconds: 10 }
   ),
-  text(`${r}-si2`, "¿pudiste coger hueco? si no te cuadra ninguno dime y lo movemos", {
+  // El enlace en su propio mensaje: la vista previa de Instagram sale debajo de él y nada más.
+  text(`${r}-si2`, `coge aquí el hueco que te venga bien:\n\n${AGENDAR}`, { delaySeconds: 6 }),
+  text(`${r}-si3`, "¿pudiste coger hueco? si no te cuadra ninguno dime y lo movemos", {
     delaySeconds: 4 * HORA,
     skipIfReplied: true,
   }),
 ];
 
-const skool = (r: string) => [
+const gratis = (r: string) => [
   text(
     `${r}-no1`,
-    `te soy sincero: para tu punto ahora mismo lo que más te sirve es empezar por la base\n\ntengo una comunidad donde está todo paso a paso y hago un directo al mes:\n${SKOOL}\n\ny si quieres ir viéndolo gratis, aquí el curso completo: ${CURSO}`,
+    `te soy sincero: para tu punto ahora mismo lo que más te sirve es empezar por la base\n\naquí tienes el curso completo gratis, son más de 7 horas: ${CURSO}\n\ncuando lo tengas más rodado me escribes y hablamos`,
     { delaySeconds: 10 }
   ),
 ];
@@ -85,8 +87,8 @@ const sequence = sequenceSchema.parse({
     { id: "monta", name: "Sabe montar, no vende", qualified: false, steps: cualificar("monta") },
     { id: "cero_si", name: "De cero · puede invertir", qualified: true, steps: llamada("cero") },
     { id: "monta_si", name: "Sabe montar · puede invertir", qualified: true, steps: llamada("monta") },
-    { id: "cero_no", name: "De cero · ahora no", qualified: false, steps: skool("cero") },
-    { id: "monta_no", name: "Sabe montar · ahora no", qualified: false, steps: skool("monta") },
+    { id: "cero_no", name: "De cero · ahora no", qualified: false, steps: gratis("cero") },
+    { id: "monta_no", name: "Sabe montar · ahora no", qualified: false, steps: gratis("monta") },
     {
       id: "negocio",
       name: "Tiene negocio (Syncra)",
@@ -124,7 +126,7 @@ await prisma.$transaction(
   camps.map((c) =>
     prisma.automation.update({
       where: { id: c.id },
-      data: { sequence, goal: "Setting fase 1: triaje con botones → llamada (cualificados), Skool (ahora no) o Syncra (negocio)" },
+      data: { sequence, goal: "Setting fase 1: triaje con botones → llamada (cualificados), curso gratis (ahora no) o Syncra (negocio)" },
     })
   )
 );
