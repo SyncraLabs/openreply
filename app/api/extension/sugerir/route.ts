@@ -1,16 +1,17 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { autenticarExtension } from "@/lib/extension/auth";
 import { getRedisConnection } from "@/lib/queue/client";
 
-const MODEL = "claude-sonnet-5-5";
+// El mismo modelo que usa el asistente de AI Operator.
+const MODELO = "gpt-6.1-terra";
 const TOPE_DIARIO = 150;
 const ENLACES: Record<string, string> = {
   agenda: "https://aioperator.syncralabs.es/agendar",
   curso: "https://yt.openinapp.co/mqvqb",
 };
+const FASES = ["situacion", "que-quiere", "que-le-frena", "valor", "llamada", "cita", "curso", "syncra", "menor", "seguimiento", "objecion"] as const;
+const ESTADOS = ["Hablando", "Potencial", "Llamada propuesta", "Agendado", "Curso", "Syncra", "Perdido"] as const;
 
 const METODO = `Eres el asistente de setting de Rodrigo (@rodrigov.ia). Rodrigo responde él mismo los DMs de Instagram; tú le sugieres qué escribir. No envías nada.
 
@@ -33,12 +34,26 @@ Cómo escribe Rodrigo: en minúscula, corto, sin signos de apertura, con «tio»
 Los enlaces solo con su marcador: {agenda} o {curso}. Nunca escribas una URL.`;
 
 const respuestaSchema = z.object({
-  fase: z.enum(["situacion", "que-quiere", "que-le-frena", "valor", "llamada", "cita", "curso", "syncra", "menor", "seguimiento", "objecion"]),
+  fase: z.enum(FASES),
   falta: z.array(z.string()).max(3),
   motivo: z.string(),
   mensajes: z.array(z.string()).min(1).max(3),
-  estadoSugerido: z.enum(["Hablando", "Potencial", "Llamada propuesta", "Agendado", "Curso", "Syncra", "Perdido"]),
+  estadoSugerido: z.enum(ESTADOS),
 });
+
+// El mismo esquema, en el formato estricto que pide OpenAI.
+const ESQUEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["fase", "falta", "motivo", "mensajes", "estadoSugerido"],
+  properties: {
+    fase: { type: "string", enum: FASES },
+    falta: { type: "array", items: { type: "string" }, maxItems: 3 },
+    motivo: { type: "string" },
+    mensajes: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 3 },
+    estadoSugerido: { type: "string", enum: ESTADOS },
+  },
+};
 
 const entrada = z.object({
   usuario: z.string().max(40).optional(),
@@ -47,41 +62,63 @@ const entrada = z.object({
   mensajes: z.array(z.object({ texto: z.string().max(1000), mio: z.boolean() })).min(1).max(30),
 });
 
-let client: Anthropic | null = null;
+/** Saca el texto de la respuesta de la API de Responses. */
+function textoDeSalida(datos: { output?: { type?: string; content?: { type?: string; text?: string }[] }[] }): string {
+  for (const item of datos.output ?? []) for (const c of item.content ?? []) if (c.type === "output_text" && c.text) return c.text;
+  return "";
+}
 
 export async function POST(req: Request) {
   const ctx = await autenticarExtension(req);
   if (!ctx) return NextResponse.json({ error: "Token no válido" }, { status: 401 });
-  if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ error: "La IA no está configurada en el servidor" }, { status: 503 });
+  const clave = process.env.OPENAI_API_KEY;
+  if (!clave) return NextResponse.json({ error: "La IA no está configurada en el servidor" }, { status: 503 });
   const datos = entrada.safeParse(await req.json().catch(() => null));
   if (!datos.success) return NextResponse.json({ error: "Datos no válidos" }, { status: 400 });
 
-  const clave = `ext:ia:${ctx.workspaceId}:${new Date().toISOString().slice(0, 10)}`;
-  const usados = await getRedisConnection().incr(clave);
-  if (usados === 1) await getRedisConnection().expire(clave, 60 * 60 * 48);
+  const cuenta = `ext:ia:${ctx.workspaceId}:${new Date().toISOString().slice(0, 10)}`;
+  let usados: number;
+  try {
+    usados = await getRedisConnection().incr(cuenta);
+    if (usados === 1) await getRedisConnection().expire(cuenta, 60 * 60 * 48);
+  } catch (error) {
+    // Sin el contador no hay tope de gasto: mejor no llamar a la IA.
+    console.error("[extension] contador de IA", error);
+    return NextResponse.json({ error: "No se ha podido comprobar el tope diario; inténtalo en un rato" }, { status: 503 });
+  }
   if (usados > TOPE_DIARIO) return NextResponse.json({ error: `Has llegado al tope de ${TOPE_DIARIO} sugerencias de hoy` }, { status: 429 });
 
   const { nombre, usuario, nota, mensajes } = datos.data;
   const chat = mensajes.map((m) => `[${m.mio ? "rodrigo" : "lead"}] ${m.texto}`).join("\n");
   try {
-    client ??= new Anthropic();
-    const r = await client.beta.messages.parse({
-      model: MODEL,
-      max_tokens: 1200,
-      system: METODO,
-      messages: [{
-        role: "user",
-        content: `Lead: ${nombre || "sin nombre"}${usuario ? ` (@${usuario})` : ""}.${nota ? `\nNota de Rodrigo: ${nota}` : ""}\n\nÚltimos mensajes, del más antiguo al más reciente:\n${chat}\n\nDi en qué fase está, qué falta saber (máximo 3 cosas cortas), por qué en una frase, los 1 a 3 mensajes siguientes que mandaría Rodrigo y el estado que le pondrías.`,
-      }],
-      output_config: { effort: "low", format: betaZodOutputFormat(respuestaSchema) },
+    const r = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${clave}`, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(45_000),
+      body: JSON.stringify({
+        model: MODELO,
+        max_output_tokens: 1500,
+        input: [
+          { role: "system", content: METODO },
+          {
+            role: "user",
+            content: `Lead: ${nombre || "sin nombre"}${usuario ? ` (@${usuario})` : ""}.${nota ? `\nNota de Rodrigo: ${nota}` : ""}\n\nÚltimos mensajes, del más antiguo al más reciente:\n${chat}\n\nDi en qué fase está, qué falta saber (máximo 3 cosas cortas), por qué en una frase, los 1 a 3 mensajes siguientes que mandaría Rodrigo y el estado que le pondrías.`,
+          },
+        ],
+        text: { format: { type: "json_schema", name: "sugerencia", strict: true, schema: ESQUEMA } },
+      }),
     });
-    const salida = r.parsed_output;
-    if (r.stop_reason === "refusal" || !salida) return NextResponse.json({ error: "La IA no ha podido sugerir nada" }, { status: 502 });
-    const conEnlaces = salida.mensajes.map((m) => m.replace(/\{(agenda|curso)\}/g, (_, k) => ENLACES[k]));
+    if (!r.ok) {
+      console.error("[extension] OpenAI", r.status, (await r.text()).slice(0, 300));
+      return NextResponse.json({ error: "No se ha podido hablar con la IA" }, { status: 502 });
+    }
+    const salida = respuestaSchema.safeParse(JSON.parse(textoDeSalida(await r.json()) || "null"));
+    if (!salida.success) return NextResponse.json({ error: "La IA no ha podido sugerir nada" }, { status: 502 });
+    const conEnlaces = salida.data.mensajes.map((m) => m.replace(/\{(agenda|curso)\}/g, (_, k) => ENLACES[k]));
     if (conEnlaces.some((m) => /\{[^}]*\}/.test(m) || /https?:\/\/(?!aioperator\.syncralabs\.es|yt\.openinapp\.co)/.test(m))) {
       return NextResponse.json({ error: "La IA propuso un enlace que no es tuyo; vuelve a pedirla" }, { status: 502 });
     }
-    return NextResponse.json({ ...salida, mensajes: conEnlaces, usados });
+    return NextResponse.json({ ...salida.data, mensajes: conEnlaces, usados });
   } catch (error) {
     console.error("[extension] sugerir", error);
     return NextResponse.json({ error: "No se ha podido hablar con la IA" }, { status: 502 });
