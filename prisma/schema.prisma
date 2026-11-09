@@ -559,3 +559,33 @@ model DailyMetric {
   @@unique([workspaceId, date])
   @@index([workspaceId, date])
 }
+
+// Extensión de setting: token de acceso (solo se guarda el hash) y ficha de cada lead.
+model ApiToken {
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  instagramAccountId String
+  nombre             String
+  tokenHash          String   @unique
+  createdAt          DateTime @default(now())
+
+  @@index([workspaceId])
+}
+
+model LeadCrm {
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  instagramAccountId String
+  // Usuario de Instagram en minúsculas, sin @.
+  usuario            String
+  nombre             String?
+  estado             String    @default("Hablando")
+  etiquetas          String[]  @default([])
+  nota               String    @default("")
+  seguimiento        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([instagramAccountId, usuario])
+  @@index([instagramAccountId, estado])
+}
